@@ -1,10 +1,10 @@
-from .datasets_hub import DatasetsHub
+from datasets_hub import DatasetsHub
 
 
 hub = DatasetsHub()
 ds_names = hub.list_ds_repos()
 print(ds_names)
-ds = hub.load_dataset("csv", "test", "70bcd0b031e642ccb4170cc92b0768e4fb6245fb7b8ebc7c21fff7fd1a5b41a2", streaming=True, split="train")
+ds = hub.load_dataset("csv", "test", "c7a38422a406b46804557471edd4477cc37843d8e6d09ae4f1aafa030ae947b3", auth_splits=False)
 print(type(ds))
 print(ds)
 # train = ds["train"]
