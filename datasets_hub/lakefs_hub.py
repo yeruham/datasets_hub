@@ -5,10 +5,8 @@ from datasets import  Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 from typing import Optional, Union, cast, Literal
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-import io
-import mimetypes
 
-from dataset_repo import PresignedUrl
+from lakefs_upload import LakefsUpload
 from lfs_datasets import LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict
 from dataset_repo import DatasetRepo
 from lakefs_connection import get_lakefs_client, STORAGE_OPTIONS, STORAGE_NAMESPACE
@@ -21,6 +19,7 @@ class LakefsHub(_BaseLakeFSObject):
                       access_token: str | None = None):
         self._storage_namespace = STORAGE_NAMESPACE
         client = get_lakefs_client(host=host, username=username, password=password, access_token=access_token)
+        self.lakefs_upload = LakefsUpload(client)
         super().__init__(client)
 
     def list_ds_repos(self, prefix:  str | None = None, after: str | None = None, **kwargs) -> list[str]:
@@ -81,33 +80,6 @@ class LakefsHub(_BaseLakeFSObject):
         return lfs_ds
 
 
-    def push_dataset(self,
-                       ds_name: str,
-                       dataset: Dataset,
-                       branch: str,
-                       path: str,
-                       presign: bool=True
-                       ) -> bool:
-
-        buffer = io.BytesIO()
-        dataset.to_csv(buffer)
-        size_bytes = buffer.getbuffer().nbytes
-        buffer.seek(0)
-        content_type, _ = mimetypes.guess_type(path)
-        content_type = content_type or "application/octet-stream"
-
-        ds_repo = self.get_ds_repo(ds_name)
-
-        uploaded = False
-        linked = False
-        if presign:
-             uploaded = ds_repo.presign_obj_upload(branch, path, buffer, content_type, size_bytes)
-        else:
-            linked = ds_repo.obj_upload(branch, path, buffer, content_type, size_bytes)
-
-        return uploaded and linked
-
-
     def push_and_commit_dataset(
             self,
             dataset: Dataset | DatasetDict | LFSDataset | LFSDatasetDict,
@@ -128,8 +100,8 @@ class LakefsHub(_BaseLakeFSObject):
         if isinstance(dataset, Dataset) or isinstance(dataset, LFSDataset):
             path_parts = [data_dir, split or str(dataset.split), file_type]
             full_path = Path(*(p for p in path_parts if p))
-            uploaded_and_linked = self.push_dataset(dataset=dataset,
-                                                    ds_name=ds_name,
+            uploaded_and_linked = self.lakefs_upload.upload_dataset(dataset=dataset,
+                                                    repo_name=ds_name,
                                                     branch=branch,
                                                     path=str(full_path),
                                                     presign=presign
@@ -137,16 +109,18 @@ class LakefsHub(_BaseLakeFSObject):
 
         elif isinstance(dataset, DatasetDict) or isinstance(dataset, LFSDatasetDict):
             splits = dataset.keys()
+            num_upload = 0
             for split in splits:
                 dataset = dataset[split]
                 path_parts = [data_dir, split or str(dataset.split), file_type]
                 full_path = Path(*(p for p in path_parts if p))
-                uploaded_and_linked = uploaded_and_linked and self.push_dataset(dataset=dataset,
-                                                        ds_name=ds_name,
+                num_upload += self.lakefs_upload.upload_dataset(dataset=dataset,
+                                                        repo_name=ds_name,
                                                         branch=branch,
                                                         path=str(full_path),
                                                         presign=presign
                                                         )
+            uploaded_and_linked = (num_upload == len(splits))
 
         if uploaded_and_linked:
             ds_repo = self.get_ds_repo(ds_name)
