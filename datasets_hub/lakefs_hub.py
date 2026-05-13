@@ -1,162 +1,151 @@
-from lakefs import repository, repositories, Client, Commit, Reference
-from lakefs.client import _BaseLakeFSObject
-from datasets import load_dataset as hf_load_dataset, Split, NamedSplit, Features
-from datasets import  Dataset, DatasetDict, IterableDataset, IterableDatasetDict
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Optional, Union, cast, Literal
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+
+from lakefs import repository, repositories, Client, Reference
+from lakefs.client import _BaseLakeFSObject
+from datasets import load_dataset as hf_load_dataset, Split, Features
+from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 from lakefs_upload import LakefsUpload
-from lfs_datasets import LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict
 from dataset_repo import DatasetRepo
-from lakefs_connection import get_lakefs_client, STORAGE_OPTIONS, STORAGE_NAMESPACE
+from lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
+from models import PresignedUrl
+
 
 class LakefsHub(_BaseLakeFSObject):
 
-    def __init__(self, host: str | None = None,
-                      username: str | None = None,
-                      password: str | None = None,
-                      access_token: str | None = None):
+    def __init__(
+        self,
+        host: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        access_token: str | None = None,
+    ):
         self._storage_namespace = STORAGE_NAMESPACE
         client = get_lakefs_client(host=host, username=username, password=password, access_token=access_token)
         self.lakefs_upload = LakefsUpload(client)
         super().__init__(client)
 
-    def list_ds_repos(self, prefix:  str | None = None, after: str | None = None, **kwargs) -> list[str]:
-        yield_list_repos = repositories(client=self._client, prefix=prefix, after=after, **kwargs)
-        list_repos = [repo.id for repo in yield_list_repos]
-        return list_repos
+
+    def list_ds_repos(self, prefix: str | None = None, after: str | None = None, **kwargs) -> list[str]:
+        return [repo.id for repo in repositories(client=self._client, prefix=prefix, after=after, **kwargs)]
 
     def create_ds_repo(self, name: str) -> DatasetRepo:
-        repo = DatasetRepo(repository_id=name, client=self._client).create(storage_namespace=self._storage_namespace)
-        ds_repo = DatasetRepo.from_repo(repo)
-        return ds_repo
-
+        repo = DatasetRepo(repository_id=name, client=self._client).create(
+            storage_namespace=self._storage_namespace
+        )
+        return DatasetRepo.from_repo(repo)
 
     def get_ds_repo(self, name: str) -> DatasetRepo:
         repo = repository(repository_id=name, client=self._client)
-        ds_repo = DatasetRepo.from_repo(repo)
-        return ds_repo
+        return DatasetRepo.from_repo(repo)
 
 
     def load_dataset(
-                    self,
-                    path: str,
-                    name: str,
-                    revision: str,
-                    data_dir: Optional[str] = None,
-                    split: Optional[Union[str, Split, list[str], list[Split]]] = None,
-                    features: Optional[Features] = None,
-                    keep_in_memory: Optional[bool] = None,
-                    token: Optional[Union[bool, str]] = None,
-                    streaming: bool = False,
-                    num_proc: Optional[int] = None,
-                    auth_splits: bool = True,
-                    **kwargs
-                    ) -> Union[LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict]:
+        self,
+        path: str,
+        name: str,
+        revision: str,
+        data_dir: Optional[str] = None,
+        split: Optional[Union[str, Split, list[str], list[Split]]] = None,
+        features: Optional[Features] = None,
+        keep_in_memory: Optional[bool] = None,
+        token: Optional[Union[bool, str]] = None,
+        streaming: bool = False,
+        num_proc: Optional[int] = None,
+        auth_splits: bool = True,
+        **kwargs,
+    ):
+        from lfs_datasets import LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict, _convert_ds_to_lfs
 
-        ds_repo = self.get_ds_repo(name)
-        presign_urls: list[PresignedUrl] = ds_repo.get_presigned_urls(ref=revision, prefix=data_dir)
+        presign_urls: list[PresignedUrl] = self.lakefs_upload.get_presigned_urls(
+            repo_name=name, ref=revision, prefix=data_dir
+        )
 
-        data_files: str | Sequence[str] | Mapping[str, str | Sequence[str]] | None = None
         if auth_splits:
-            data_files = {
-                obj.name: obj.physical_address
-                for obj in presign_urls
-            }
+            data_files = {obj.name: obj.physical_address for obj in presign_urls}
         else:
             data_files = [obj.physical_address for obj in presign_urls]
 
-        ds = hf_load_dataset(path=path,
-                             data_files=data_files,
-                             split=split,
-                             streaming=cast(Literal[False], streaming),
-                             features=features,
-                             keep_in_memory=keep_in_memory,
-                             num_proc=num_proc,
+        ds = hf_load_dataset(
+            path=path,
+            data_files=data_files,
+            split=split,
+            streaming=cast(Literal[False], streaming),
+            features=features,
+            keep_in_memory=keep_in_memory,
+            num_proc=num_proc,
         )
 
-        lfs_ds = _convert_ds_to_lfs(ds)
-        return lfs_ds
+        return _convert_ds_to_lfs(ds)
 
 
     def push_and_commit_dataset(
-            self,
-            dataset: Dataset | DatasetDict | LFSDataset | LFSDatasetDict,
-            file_type: str,
-            ds_name: str,
-            commit_message: str,
-            commit_metadata: Optional[str] = None,
-            split: Optional[str] = None,
-            data_dir: Optional[str] = None,
-            token: Optional[str] = None,
-            branch: Optional[str] = None,
-            presign: Optional[bool] = True,
-            **kwargs
+        self,
+        dataset: Dataset | DatasetDict,
+        file_type: str,
+        ds_name: str,
+        commit_message: str,
+        commit_metadata: Optional[dict] = None,
+        split: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        branch: Optional[str] = None,
+        presign: bool = True,
+        **kwargs,
     ) -> Reference | None:
+        from lfs_datasets import LFSDataset, LFSDatasetDict
 
         uploaded_and_linked = False
 
-        if isinstance(dataset, Dataset) or isinstance(dataset, LFSDataset):
+        if isinstance(dataset, (Dataset, LFSDataset)):
             path_parts = [data_dir, split or str(dataset.split), file_type]
             full_path = Path(*(p for p in path_parts if p))
-            uploaded_and_linked = self.lakefs_upload.upload_dataset(dataset=dataset,
-                                                    repo_name=ds_name,
-                                                    branch=branch,
-                                                    path=str(full_path),
-                                                    presign=presign
-                                                    )
+            uploaded_and_linked = self.lakefs_upload.upload_dataset(
+                dataset=dataset,
+                repo_name=ds_name,
+                branch=branch,
+                path=str(full_path),
+                presign=presign,
+            )
 
-        elif isinstance(dataset, DatasetDict) or isinstance(dataset, LFSDatasetDict):
-            splits = dataset.keys()
-            num_upload = 0
-            for split in splits:
-                dataset = dataset[split]
-                path_parts = [data_dir, split or str(dataset.split), file_type]
+        elif isinstance(dataset, (DatasetDict, LFSDatasetDict)):
+            splits = list(dataset.keys())
+            num_uploaded = 0
+            for ds_split in splits:
+                ds = dataset[ds_split]
+                path_parts = [data_dir, ds_split, file_type]
                 full_path = Path(*(p for p in path_parts if p))
-                num_upload += self.lakefs_upload.upload_dataset(dataset=dataset,
-                                                        repo_name=ds_name,
-                                                        branch=branch,
-                                                        path=str(full_path),
-                                                        presign=presign
-                                                        )
-            uploaded_and_linked = (num_upload == len(splits))
+                success = self.lakefs_upload.upload_dataset(
+                    dataset=ds,
+                    repo_name=ds_name,
+                    branch=branch,
+                    path=str(full_path),
+                    presign=presign,
+                )
+                if success:
+                    num_uploaded += 1
+            uploaded_and_linked = num_uploaded == len(splits)
 
-        if uploaded_and_linked:
-            ds_repo = self.get_ds_repo(ds_name)
-            ref = ds_repo.branch(branch).commit(commit_message, commit_metadata)
-            return ref
+        if not uploaded_and_linked:
+            raise RuntimeError(f"Upload failed for dataset '{ds_name}' on branch '{branch}'.")
 
+        ds_repo = self.get_ds_repo(ds_name)
+        return ds_repo.branch(branch).commit(commit_message, commit_metadata)
 
     def push_iterable_dataset(
-            self,
-            dataset: IterableDataset | IterableDatasetDict | LFSIterableDataset | LFSIterableDatasetDict,
-            file_type: str,
-            repo_id: str,
-            commit_message: str,
-            commit_metadata: Optional[str] = None,
-            split: Optional[str] = None,
-            data_dir: Optional[str] = None,
-            token: Optional[str] = None,
-            branch: Optional[str] = None,
-            presign: Optional[bool] = True,
-            ** kwargs
-
+        self,
+        dataset: IterableDataset | IterableDatasetDict,
+        file_type: str,
+        repo_id: str,
+        commit_message: str,
+        commit_metadata: Optional[dict] = None,
+        split: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        branch: Optional[str] = None,
+        presign: bool = True,
+        **kwargs,
     ) -> Reference:
-        pass
-
-
-
-def _convert_ds_to_lfs(ds: Dataset | DatasetDict | IterableDataset | IterableDatasetDict) -> Union[LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict]:
-    _converters = {
-        Dataset: LFSDataset.from_dataset,
-        DatasetDict: LFSDatasetDict.from_dataset_dict,
-        IterableDataset: LFSIterableDataset.from_iterable_dataset,
-        IterableDatasetDict: LFSIterableDatasetDict.from_iterable_dataset_dict,
-    }
-
-    converter = _converters.get(type(ds))
-    if converter is None:
-        raise TypeError(f"Unsupported dataset type: {type(ds)}")
-
-    return converter(ds)
+        raise NotImplementedError("push_iterable_dataset is not yet implemented.")
