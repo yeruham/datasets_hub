@@ -47,12 +47,12 @@ class LFSPresign:
         staging_location = self._client.sdk_client.staging_api.get_physical_address(
             repository=repo_name, branch=branch, path=path, presign=True
         )
-        physical_address = staging_location.physical_address
+        presign_url = staging_location.presigned_url
 
-        response = requests.put(physical_address, data=buffer)
+        response = requests.put(presign_url, data=buffer)
         if response.status_code != 200:
             raise RuntimeError(
-                f"Failed to upload to presigned URL: {physical_address}. "
+                f"Failed to upload to presigned URL: {presign_url}. "
                 f"Status: {response.status_code}. Response: {response.text}"
             )
 

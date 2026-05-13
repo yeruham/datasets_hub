@@ -1,19 +1,18 @@
-from datasets_hub import DatasetsHub
-from lakefs_hub import get_lakefs_client
-
-get_lakefs_client().sdk_client.experimental_api.create_presign_multipart_upload()
+from datasets_hub.lakefs_hub import LakefsHub
 
 
-hub = DatasetsHub()
+hub = LakefsHub()
 ds_names = hub.list_ds_repos()
 print(ds_names)
-ds = hub.load_dataset("csv", "test", "c7a38422a406b46804557471edd4477cc37843d8e6d09ae4f1aafa030ae947b3", auth_splits=False)
+ds = hub.load_dataset("csv", "test", "c7a38422a406b46804557471edd4477cc37843d8e6d09ae4f1aafa030ae947b3")
 print(type(ds))
 print(ds)
 # train = ds["train"]
 for r in ds:
     print(r)
 
+commit = ds.push_to_hub(repo_id="test", data_dir="data", revision="dev-branch", commit_message=" sdk commit!!!",  file_type="parquet")
+print(commit)
 from datasets import load_dataset
 # ds = load_dataset('nyu-mll/glue', 'sst2', streaming=True)
 # print(type(ds))

@@ -87,7 +87,7 @@ class LakefsHub(_BaseLakeFSObject):
             dataset: Dataset | DatasetDict | IterableDataset | IterableDatasetDict,
             ds_name: str,
             commit_message: str,
-            file_type: str = ".csv",
+            file_type: str = "csv",
             commit_metadata: Optional[dict] = None,
             split: Optional[str] = None,
             data_dir: Optional[str] = None,
@@ -117,13 +117,15 @@ class LakefsHub(_BaseLakeFSObject):
 
         num_uploaded = 0
         for ds_split, ds in pairs:
-            path_parts = [data_dir, ds_split, file_type]
-            full_path = Path(*(p for p in path_parts if p))
+            path_parts = [data_dir, ds_split]
+            full_path = "/".join(p.strip("/") for p in path_parts if p)
+            ext = file_type if file_type.startswith('.') else f".{file_type}"
+            full_path += ext
             success = self.lfs_upload.upload_dataset(
                 dataset=ds,
                 repo_name=ds_name,
                 branch=branch,
-                path=str(full_path),
+                path=full_path,
                 file_type=file_type,
                 presign=presign,
                 multipart=multipart,

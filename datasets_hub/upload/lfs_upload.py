@@ -10,7 +10,7 @@ from datasets_hub.upload.presign import LFSPresign
 from datasets_hub.upload.multipart_upload import MultipartUpload
 from datasets_hub.upload.utils import extract_etag_from_response, content_type_for_file_type
 
-SUPPORTED_FILE_TYPES = {".csv", ".parquet"}
+SUPPORTED_FILE_TYPES = {"csv", "parquet"}
 
 # S3 minimum part size is 5MB (except for the last part)
 MIN_PART_SIZE_BYTES = 5 * 1024 * 1024
@@ -25,7 +25,7 @@ class LFSUpload:
 
     def _obj_upload(self, repo_name: str, branch: str, path: str, buffer: BytesIO) -> bool:
         state = self._client.sdk_client.objects_api.upload_object(
-            repository=repo_name, branch=branch, path=path, content=buffer
+            repository=repo_name, branch=branch, path=path, content=buffer.getvalue()
         )
         return state is not None
 
@@ -36,7 +36,7 @@ class LFSUpload:
         dataset: Union[Dataset, IterableDataset],
         branch: str,
         path: str,
-        file_type: str = ".csv",
+        file_type: str,
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None,
@@ -97,9 +97,9 @@ class LFSUpload:
         presign: bool,
     ) -> bool:
         buffer = io.BytesIO()
-        if file_type == ".csv":
+        if file_type == "csv":
             dataset.to_csv(buffer)
-        elif file_type == ".parquet":
+        elif file_type == "parquet":
             dataset.to_parquet(buffer)
 
         size_bytes = buffer.getbuffer().nbytes
