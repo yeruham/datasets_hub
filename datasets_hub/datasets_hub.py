@@ -1,4 +1,4 @@
-from lakefs import repository, repositories, Client, Commit
+from lakefs import repository, repositories, Client, Commit, Reference
 from lakefs.client import _BaseLakeFSObject
 from datasets import load_dataset as hf_load_dataset, Split, NamedSplit, Features
 from datasets import  Dataset, DatasetDict, IterableDataset, IterableDatasetDict
@@ -81,22 +81,30 @@ class DatasetsHub(_BaseLakeFSObject):
     def push_to_hub(
             self,
             dataset: Dataset,
+            file_type: str,
             repo_id: str,
+            commit_message: str,
+            commit_metadata: dict,
             split: Optional[str] = None,
             data_dir: Optional[str] = None,
-            commit_message: Optional[str] = None,
-            commit_description: Optional[str] = None,
             token: Optional[str] = None,
             revision: Optional[str] = None,
+            presign: Optional[bool] = True,
             **kwargs
-    ) -> Commit:
-        ds_repo = self.get_ds_repo(repo_id)
+    ) -> Reference:
 
-        file_type = ".csv"
+        ds_repo = self.get_ds_repo(repo_id)
         path_parts = [data_dir, split or str(dataset.split), file_type]
         full_path = Path(*(p for p in path_parts if p))
 
-        pass
+        ref = ds_repo.push_and_commit_dataset(dataset=dataset,
+                                        branch=revision,
+                                        path=str(full_path),
+                                        message=commit_message,
+                                        metadata=commit_metadata,
+                                        presign=presign
+                                        )
+        return ref
 
 
 

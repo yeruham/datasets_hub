@@ -1,6 +1,9 @@
 from __future__ import annotations
+
+from io import BytesIO
+
 from lakefs_sdk import client
-from lakefs import Repository, Client
+from lakefs import Repository, Client, Reference
 from lakefs_sdk import StagingMetadata, ObjectStats
 from datasets import Dataset, load_dataset
 from typing import Optional, Union
@@ -54,16 +57,35 @@ class DatasetRepo(Repository):
         return obj_name
 
 
-    def upload_dataset(self, dataset: Dataset, branch: str, path: str) -> ObjectStats:
+    def push_and_commit_dataset(self,
+                       dataset: Dataset,
+                       branch: str,
+                       path: str,
+                       message: str,
+                       metadata: dict,
+                       presign: bool=True) -> Reference | None:
         _branch = self.branch(branch)
 
         buffer = io.BytesIO()
         dataset.to_csv(buffer)
         size_bytes = buffer.getbuffer().nbytes
         buffer.seek(0)
-
         content_type, _ = mimetypes.guess_type(path)
         content_type = content_type or "application/octet-stream"
+
+        uploaded_and_linked = False
+        if presign:
+             uploaded_and_linked = self.presign_obj_upload(branch, path, buffer, content_type, size_bytes)
+        else:
+            uploaded_and_linked = self.obj_upload(branch, path, buffer, content_type, size_bytes)
+
+        if uploaded_and_linked:
+            commit_ref = self.branch(branch).commit(message, metadata)
+            return commit_ref
+
+
+
+    def presign_obj_upload(self, branch: str, path: str, buffer: BytesIO, content_type: str, size_bytes: int) -> bool:
 
         staging_location = self._client.sdk_client.staging_api.get_physical_address(repository=self.id,
                                                                                     branch=branch,
@@ -81,10 +103,11 @@ class DatasetRepo(Repository):
                                                    content_type=content_type,
                                                    mtime=None)
 
-                return self._client.sdk_client.staging_api.link_physical_address(repository=self.id,
+                state = self._client.sdk_client.staging_api.link_physical_address(repository=self.id,
                                                                                      branch=branch,
                                                                                      path=path,
                                                                                      staging_metadata=staging_metadata)
+                return state is not None
             else:
                 raise (f"upload file to presign_url: {physical_address} "
                        f"status_code: {response.status_code}"
@@ -92,6 +115,11 @@ class DatasetRepo(Repository):
 
         except Exception as e:
             raise e
+
+
+    def obj_upload(self, branch: str, path: str, buffer: BytesIO, content_type: str, size_bytes: int) -> bool:
+        state = self._client.sdk_client.objects_api.upload_object(repository=self.id, branch=branch, path=path, content=buffer)
+        return state is not None
 
 
     @staticmethod
