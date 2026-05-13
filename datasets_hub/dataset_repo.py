@@ -57,33 +57,6 @@ class DatasetRepo(Repository):
         return obj_name
 
 
-    def push_and_commit_dataset(self,
-                       dataset: Dataset,
-                       branch: str,
-                       path: str,
-                       message: str,
-                       metadata: dict,
-                       presign: bool=True) -> Reference | None:
-        _branch = self.branch(branch)
-
-        buffer = io.BytesIO()
-        dataset.to_csv(buffer)
-        size_bytes = buffer.getbuffer().nbytes
-        buffer.seek(0)
-        content_type, _ = mimetypes.guess_type(path)
-        content_type = content_type or "application/octet-stream"
-
-        uploaded_and_linked = False
-        if presign:
-             uploaded_and_linked = self.presign_obj_upload(branch, path, buffer, content_type, size_bytes)
-        else:
-            uploaded_and_linked = self.obj_upload(branch, path, buffer, content_type, size_bytes)
-
-        if uploaded_and_linked:
-            commit_ref = self.branch(branch).commit(message, metadata)
-            return commit_ref
-
-
 
     def presign_obj_upload(self, branch: str, path: str, buffer: BytesIO, content_type: str, size_bytes: int) -> bool:
 
