@@ -8,7 +8,7 @@ from lakefs.client import _BaseLakeFSObject
 from datasets import load_dataset as hf_load_dataset, Split, Features
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
-from datasets_hub.lakefs_upload.lakefs_upload import LakefsUpload
+from datasets_hub.upload.lfs_upload import LFSUpload
 from dataset_repo import DatasetRepo
 from lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
 from models import PresignedUrl
@@ -25,7 +25,7 @@ class LakefsHub(_BaseLakeFSObject):
     ):
         self._storage_namespace = STORAGE_NAMESPACE
         client = get_lakefs_client(host=host, username=username, password=password, access_token=access_token)
-        self.lakefs_upload = LakefsUpload(client)
+        self.lfs_upload = LFSUpload(client)
         super().__init__(client)
 
 
@@ -60,7 +60,7 @@ class LakefsHub(_BaseLakeFSObject):
     ):
         from lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
 
-        presign_urls: list[PresignedUrl] = self.lakefs_upload.get_presigned_urls(
+        presign_urls: list[PresignedUrl] = self.lfs_upload.presign.get_presigned_urls(
             repo_name=name, ref=revision, prefix=data_dir
         )
 
@@ -119,7 +119,7 @@ class LakefsHub(_BaseLakeFSObject):
         for ds_split, ds in pairs:
             path_parts = [data_dir, ds_split, file_type]
             full_path = Path(*(p for p in path_parts if p))
-            success = self.lakefs_upload.upload_dataset(
+            success = self.lfs_upload.upload_dataset(
                 dataset=ds,
                 repo_name=ds_name,
                 branch=branch,
