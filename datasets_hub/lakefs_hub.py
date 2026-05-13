@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional, Union, cast, Literal
-from collections.abc import Mapping, Sequence
 
-from lakefs import repository, repositories, Client, Reference
+from lakefs import repository, repositories, Reference
 from lakefs.client import _BaseLakeFSObject
 from datasets import load_dataset as hf_load_dataset, Split, Features
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
-from lakefs_upload import LakefsUpload
+from datasets_hub.lakefs_upload.lakefs_upload import LakefsUpload
 from dataset_repo import DatasetRepo
 from lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
 from models import PresignedUrl
@@ -59,7 +58,7 @@ class LakefsHub(_BaseLakeFSObject):
             auth_splits: bool = True,
             **kwargs,
     ):
-        from lfs_datasets import LFSDataset, LFSDatasetDict, LFSIterableDataset, LFSIterableDatasetDict, _convert_ds_to_lfs
+        from lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
 
         presign_urls: list[PresignedUrl] = self.lakefs_upload.get_presigned_urls(
             repo_name=name, ref=revision, prefix=data_dir
@@ -85,116 +84,56 @@ class LakefsHub(_BaseLakeFSObject):
 
     def push_and_commit_dataset(
             self,
-            dataset: Dataset | DatasetDict,
-            file_type: str,
+            dataset: Dataset | DatasetDict | IterableDataset | IterableDatasetDict,
             ds_name: str,
             commit_message: str,
+            file_type: str = ".csv",
             commit_metadata: Optional[dict] = None,
             split: Optional[str] = None,
             data_dir: Optional[str] = None,
             branch: Optional[str] = None,
             presign: bool = True,
-            **kwargs,
-    ) -> Reference | None:
-        from lfs_datasets import LFSDataset, LFSDatasetDict
-
-        uploaded_and_linked = False
-
-        if isinstance(dataset, (Dataset, LFSDataset)):
-            path_parts = [data_dir, split or str(dataset.split), file_type]
-            full_path = Path(*(p for p in path_parts if p))
-            uploaded_and_linked = self.lakefs_upload.upload_dataset(
-                dataset=dataset,
-                repo_name=ds_name,
-                branch=branch,
-                path=str(full_path),
-                presign=presign,
-            )
-
-        elif isinstance(dataset, (DatasetDict, LFSDatasetDict)):
-            splits = list(dataset.keys())
-            num_uploaded = 0
-            for ds_split in splits:
-                ds = dataset[ds_split]
-                path_parts = [data_dir, ds_split, file_type]
-                full_path = Path(*(p for p in path_parts if p))
-                success = self.lakefs_upload.upload_dataset(
-                    dataset=ds,
-                    repo_name=ds_name,
-                    branch=branch,
-                    path=str(full_path),
-                    presign=presign,
-                )
-                if success:
-                    num_uploaded += 1
-            uploaded_and_linked = num_uploaded == len(splits)
-
-        if not uploaded_and_linked:
-            raise RuntimeError(f"Upload failed for dataset '{ds_name}' on branch '{branch}'.")
-
-        ds_repo = self.get_ds_repo(ds_name)
-        return ds_repo.branch(branch).commit(commit_message, commit_metadata)
-
-    def push_and_commit_iterable_dataset(
-            self,
-            dataset: IterableDataset | IterableDatasetDict,
-            file_type: str,
-            repo_id: str,
-            commit_message: str,
-            commit_metadata: Optional[dict] = None,
-            split: Optional[str] = None,
-            data_dir: Optional[str] = None,
-            branch: Optional[str] = None,
-            presign: bool = True,
+            multipart: bool = False,
             batch_size: Optional[int] = None,
             **kwargs,
     ) -> Reference:
         """
-        Push an IterableDataset or IterableDatasetDict to lakeFS.
+        Push any dataset type to lakeFS and commit.
 
         Args:
-            batch_size: If None, collects all rows into memory before uploading.
-                        If set, writes in batches (only supported for CSV).
+            multipart: Use experimental multipart upload API. Keeps memory bounded to batch_size.
+            batch_size: Part size in bytes. Required when multipart=True. Must be >= 5MB.
+            presign: Use presigned URL for single-shot upload. Ignored when multipart=True.
         """
-        from lfs_datasets import LFSIterableDataset, LFSIterableDatasetDict
 
-        uploaded_and_linked = False
+        # Normalize to iterable of (split_name, ds) pairs
+        if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
+            pairs = [(ds_split, dataset[ds_split]) for ds_split in dataset.keys()]
+        elif isinstance(dataset, (Dataset, IterableDataset)):
+            split_name = split or (str(dataset.split) if hasattr(dataset, "split") else None)
+            pairs = [(split_name, dataset)]
+        else:
+            raise TypeError(f"Unsupported dataset type: {type(dataset)}")
 
-        if isinstance(dataset, (IterableDataset, LFSIterableDataset)):
-            path_parts = [data_dir, split, file_type]
+        num_uploaded = 0
+        for ds_split, ds in pairs:
+            path_parts = [data_dir, ds_split, file_type]
             full_path = Path(*(p for p in path_parts if p))
-            uploaded_and_linked = self.lakefs_upload.upload_iterable_dataset(
-                dataset=dataset,
-                repo_name=repo_id,
+            success = self.lakefs_upload.upload_dataset(
+                dataset=ds,
+                repo_name=ds_name,
                 branch=branch,
                 path=str(full_path),
                 file_type=file_type,
                 presign=presign,
+                multipart=multipart,
                 batch_size=batch_size,
             )
+            if success:
+                num_uploaded += 1
 
-        elif isinstance(dataset, (IterableDatasetDict, LFSIterableDatasetDict)):
-            splits = list(dataset.keys())
-            num_uploaded = 0
-            for ds_split in splits:
-                ds = dataset[ds_split]
-                path_parts = [data_dir, ds_split, file_type]
-                full_path = Path(*(p for p in path_parts if p))
-                success = self.lakefs_upload.upload_iterable_dataset(
-                    dataset=ds,
-                    repo_name=repo_id,
-                    branch=branch,
-                    path=str(full_path),
-                    file_type=file_type,
-                    presign=presign,
-                    batch_size=batch_size,
-                )
-                if success:
-                    num_uploaded += 1
-            uploaded_and_linked = num_uploaded == len(splits)
+        if num_uploaded != len(pairs):
+            raise RuntimeError(f"Upload failed for dataset '{ds_name}' on branch '{branch}'.")
 
-        if not uploaded_and_linked:
-            raise RuntimeError(f"Upload failed for iterable dataset '{repo_id}' on branch '{branch}'.")
-
-        ds_repo = self.get_ds_repo(repo_id)
+        ds_repo = self.get_ds_repo(ds_name)
         return ds_repo.branch(branch).commit(commit_message, commit_metadata)

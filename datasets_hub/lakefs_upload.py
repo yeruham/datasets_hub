@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from lakefs import Client
 from lakefs_sdk import StagingMetadata, CompletePresignMultipartUpload, UploadPartFrom
 from datasets import Dataset, IterableDataset
 import io
 import requests
-import base64
-import binascii
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -26,6 +24,7 @@ class LakefsUpload:
 
     def __init__(self, client: Client):
         self._client = client
+
 
     def get_presigned_urls(self, repo_name: str, ref: str, prefix: str) -> list[PresignedUrl]:
         state_objects = self._client.sdk_client.objects_api.list_objects(
@@ -47,72 +46,42 @@ class LakefsUpload:
     def upload_dataset(
         self,
         repo_name: str,
-        dataset: Dataset,
+        dataset: Union[Dataset, IterableDataset],
         branch: str,
         path: str,
-        file_type: str,
+        file_type: str = ".csv",
         presign: bool = True,
-    ) -> bool:
-        buffer = io.BytesIO()
-        if file_type == ".csv":
-            dataset.to_csv(buffer)
-        elif file_type == ".parquet":
-            dataset.to_parquet(buffer)
-        size_bytes = buffer.getbuffer().nbytes
-        buffer.seek(0)
-        content_type = self._content_type_for_file_type(Path(path).suffix or file_type)
-
-        if presign:
-            return self._presign_obj_upload(repo_name, branch, path, buffer, content_type, size_bytes)
-        else:
-            return self._obj_upload(repo_name, branch, path, buffer)
-
-
-    def upload_iterable_dataset(
-        self,
-        repo_name: str,
-        dataset: IterableDataset,
-        branch: str,
-        path: str,
-        file_type: str,
-        presign: bool = True,
+        multipart: bool = False,
         batch_size: Optional[int] = None,
     ) -> bool:
         """
-        Upload an IterableDataset to lakeFS.
+        Upload a Dataset or IterableDataset to lakeFS.
 
         Args:
-            batch_size: Part size in bytes for multipart upload.
-                        Must be >= 5MB (MIN_PART_SIZE_BYTES) except for the last part.
-                        If None — serializes the entire dataset into memory and uploads in one shot.
             file_type: '.csv' or '.parquet'
+            presign: Use presigned URL for single-shot upload (staging_api).
+                     Ignored when multipart=True.
+            multipart: Use multipart upload (experimental_api).
+                       Keeps memory bounded to batch_size bytes at a time.
+            batch_size: Part size in bytes. Required when multipart=True.
+                        Must be >= 5MB (MIN_PART_SIZE_BYTES) except for the last part.
         """
         if file_type not in SUPPORTED_FILE_TYPES:
             raise ValueError(f"Unsupported file_type '{file_type}'. Supported: {SUPPORTED_FILE_TYPES}")
 
-        if batch_size is not None and batch_size < MIN_PART_SIZE_BYTES:
+        if multipart and batch_size is None:
+            raise ValueError("batch_size is required when multipart=True.")
+
+        if not multipart and batch_size is not None:
+            raise ValueError("batch_size has no effect when multipart=False.")
+
+        if multipart and batch_size < MIN_PART_SIZE_BYTES:
             raise ValueError(
                 f"batch_size must be >= {MIN_PART_SIZE_BYTES} bytes (5MB). Got {batch_size}."
             )
 
-        content_type = self._content_type_for_file_type(file_type)
-
-        if batch_size is None:
-            # Single-shot: use dataset's native serialization, then upload
-            buffer = io.BytesIO()
-            if file_type == ".csv":
-                dataset.to_csv(buffer)
-            elif file_type == ".parquet":
-                dataset.to_parquet(buffer)
-            size_bytes = buffer.getbuffer().nbytes
-            buffer.seek(0)
-            if presign:
-                return self._presign_obj_upload(repo_name, branch, path, buffer, content_type, size_bytes)
-            else:
-                return self._obj_upload(repo_name, branch, path, buffer)
-        else:
-            # Multipart: stream rows into parts, upload each part as it fills up
-            return self._multipart_upload_iterable(
+        if multipart:
+            return self._multipart_upload(
                 repo_name=repo_name,
                 branch=branch,
                 path=path,
@@ -120,21 +89,55 @@ class LakefsUpload:
                 file_type=file_type,
                 part_size=batch_size,
             )
+        else:
+            return self._single_shot_upload(
+                repo_name=repo_name,
+                branch=branch,
+                path=path,
+                dataset=dataset,
+                file_type=file_type,
+                presign=presign,
+            )
 
 
-    def _multipart_upload_iterable(
+    def _single_shot_upload(
         self,
         repo_name: str,
         branch: str,
         path: str,
-        dataset: IterableDataset,
+        dataset: Union[Dataset, IterableDataset],
+        file_type: str,
+        presign: bool,
+    ) -> bool:
+        buffer = io.BytesIO()
+        if file_type == ".csv":
+            dataset.to_csv(buffer)
+        elif file_type == ".parquet":
+            dataset.to_parquet(buffer)
+
+        size_bytes = buffer.getbuffer().nbytes
+        buffer.seek(0)
+        content_type = self._content_type_for_file_type(file_type)
+
+        if presign:
+            return self._presign_obj_upload(repo_name, branch, path, buffer, content_type, size_bytes)
+        else:
+            return self._obj_upload(repo_name, branch, path, buffer)
+
+
+    def _multipart_upload(
+        self,
+        repo_name: str,
+        branch: str,
+        path: str,
+        dataset: Union[Dataset, IterableDataset],
         file_type: str,
         part_size: int,
     ) -> bool:
         """
-        Stream an IterableDataset to lakeFS using multipart upload.
-        Each part is uploaded as soon as it reaches part_size bytes.
+        Upload using lakeFS experimental multipart API.
         Memory usage is bounded to ~part_size bytes at a time.
+        Automatically aborts on failure.
         """
         multipart = self._client.sdk_client.experimental_api.create_presign_multipart_upload(
             repository=repo_name,
@@ -177,7 +180,7 @@ class LakefsUpload:
         branch: str,
         path: str,
         upload_id: str,
-        dataset: IterableDataset,
+        dataset: Union[Dataset, IterableDataset],
         part_size: int,
     ) -> list[str]:
         """Stream CSV rows into parts. Header is written once at the start of the first part."""
@@ -201,7 +204,6 @@ class LakefsUpload:
                 part_number += 1
                 part_buffer = io.BytesIO()
 
-        # Upload remaining rows as the final (possibly smaller) part
         if part_buffer.tell() > 0:
             etag = self._upload_part(repo_name, branch, path, upload_id, part_number, part_buffer)
             etags.append(etag)
@@ -214,40 +216,32 @@ class LakefsUpload:
         branch: str,
         path: str,
         upload_id: str,
-        dataset: IterableDataset,
+        dataset: Union[Dataset, IterableDataset],
         part_size: int,
     ) -> list[str]:
         """
         Stream parquet parts using PyArrow.
-        Rows are accumulated into batches; once serialized size >= part_size, the part is uploaded.
-        Schema is inferred from the first row and kept consistent across all parts.
+        Rows are accumulated; once serialized size >= part_size the part is uploaded.
+        Schema is inferred from the first batch and kept consistent across all parts.
         """
         etags: list[str] = []
         part_number = 1
         batch_rows: list[dict] = []
         schema: pa.Schema | None = None
 
-        def flush_batch(rows: list[dict]) -> str:
-            nonlocal schema
-            table = pa.Table.from_pylist(rows)
-            if schema is None:
-                schema = table.schema
-            else:
-                table = table.cast(schema)
-            buf = io.BytesIO()
-            pq.write_table(table, buf)
-            return self._upload_part(repo_name, branch, path, upload_id, part_number, buf)
-
         for row in dataset:
             batch_rows.append(row)
 
             # Probe size every 1000 rows to avoid serializing on every row
             if len(batch_rows) % 1000 == 0:
-                probe = io.BytesIO()
                 table = pa.Table.from_pylist(batch_rows)
                 if schema is None:
                     schema = table.schema
-                pq.write_table(table.cast(schema), probe)
+                else:
+                    table = table.cast(schema)
+
+                probe = io.BytesIO()
+                pq.write_table(table, probe)
 
                 if probe.tell() >= part_size:
                     etag = self._upload_part(repo_name, branch, path, upload_id, part_number, probe)
@@ -255,8 +249,14 @@ class LakefsUpload:
                     part_number += 1
                     batch_rows = []
 
+        # Flush remaining rows as the final part
         if batch_rows:
-            etag = flush_batch(batch_rows)
+            table = pa.Table.from_pylist(batch_rows)
+            if schema is not None:
+                table = table.cast(schema)
+            buf = io.BytesIO()
+            pq.write_table(table, buf)
+            etag = self._upload_part(repo_name, branch, path, upload_id, part_number, buf)
             etags.append(etag)
 
         return etags
@@ -329,33 +329,8 @@ class LakefsUpload:
         )
         return state is not None
 
-
     def _obj_upload(self, repo_name: str, branch: str, path: str, buffer: BytesIO) -> bool:
         state = self._client.sdk_client.objects_api.upload_object(
             repository=repo_name, branch=branch, path=path, content=buffer
         )
         return state is not None
-
-
-    @staticmethod
-    def _content_type_for_file_type(file_type: str) -> str:
-        return {
-            ".csv": "text/csv",
-            ".parquet": "application/octet-stream",
-        }.get(file_type, "application/octet-stream")
-
-
-    @staticmethod
-    def _extract_etag_from_response(headers) -> str:
-        # prefer Content-MD5 if exists
-        content_md5 = headers.get("Content-MD5")
-        if content_md5 is not None and len(content_md5) > 0:
-            try:  # decode base64, return as hex
-                decode_md5 = base64.b64decode(content_md5)
-                return binascii.hexlify(decode_md5).decode("utf-8")
-            except binascii.Error:
-                pass
-
-        # fallback to ETag
-        etag = headers.get("ETag", "").strip(' "')
-        return etag
