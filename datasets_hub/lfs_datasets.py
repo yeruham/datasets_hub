@@ -92,15 +92,20 @@ class LFSIterableDataset(IterableDataset):
         token: Optional[str] = None,
         revision: Optional[str] = None,
         file_type: Optional[str] = ".csv",
+        batch_size: Optional[int] = None,
         **kwargs,
     ) -> Reference:
         """
         Push iterable dataset to lakeFS.
         Note: returns lakeFS Reference, not HuggingFace CommitInfo.
+
+        Args:
+            batch_size: If None, collects all rows into memory before uploading.
+                        If set, writes in batches (CSV only).
         """
         from lakefs_hub import LakefsHub  # local import to avoid circular dependency
         hub = LakefsHub()
-        return hub.push_iterable_dataset(
+        return hub.push_and_commit_iterable_dataset(
             dataset=self,
             repo_id=repo_id,
             data_dir=data_dir,
@@ -108,6 +113,7 @@ class LFSIterableDataset(IterableDataset):
             commit_message=commit_message,
             branch=revision,
             file_type=file_type,
+            batch_size=batch_size,
         )
 
 
@@ -126,21 +132,27 @@ class LFSIterableDatasetDict(IterableDatasetDict):
         token: Optional[str] = None,
         revision: Optional[str] = None,
         file_type: Optional[str] = ".csv",
+        batch_size: Optional[int] = None,
         **kwargs,
     ) -> Reference:
         """
         Push iterable dataset dict to lakeFS.
         Note: returns lakeFS Reference, not HuggingFace CommitInfo.
+
+        Args:
+            batch_size: If None, collects all rows into memory before uploading.
+                        If set, writes in batches (CSV only).
         """
         from lakefs_hub import LakefsHub  # local import to avoid circular dependency
         hub = LakefsHub()
-        return hub.push_iterable_dataset(
+        return hub.push_and_commit_iterable_dataset(
             dataset=self,
             repo_id=repo_id,
             data_dir=data_dir,
             commit_message=commit_message,
             branch=revision,
             file_type=file_type,
+            batch_size = batch_size,
         )
 
 

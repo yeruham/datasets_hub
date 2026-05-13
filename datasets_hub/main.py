@@ -1,4 +1,7 @@
 from datasets_hub import DatasetsHub
+from lakefs_hub import get_lakefs_client
+
+get_lakefs_client().sdk_client.experimental_api.create_presign_multipart_upload()
 
 
 hub = DatasetsHub()
