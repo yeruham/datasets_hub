@@ -9,8 +9,6 @@ from lakefs_sdk import CompletePresignMultipartUpload, UploadPartFrom, UploadPar
 from datasets import Dataset, IterableDataset
 import io
 import requests
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from datasets_hub.upload.utils import extract_etag_from_response, content_type_for_file_type
 
@@ -122,49 +120,6 @@ class MultipartUpload:
         dataset: Union[Dataset, IterableDataset],
         part_size: int,
     ) -> list[UploadPart]:
-        """
-        Stream parquet parts using PyArrow.
-        Rows are accumulated; once serialized size >= part_size the part is uploaded.
-        Schema is inferred from the first batch and kept consistent across all parts.
-        """
-        # upload_parts: list[UploadPart] = []
-        # part_number = 1
-        # batch_rows: list[dict] = []
-        # schema: pa.Schema | None = None
-        #
-        # for row in dataset:
-        #     batch_rows.append(row)
-        #
-        #     # Probe size every 1000 rows to avoid serializing on every row
-        #     if len(batch_rows) % 1000 == 0:
-        #         table = pa.Table.from_pylist(batch_rows)
-        #         if schema is None:
-        #             schema = table.schema
-        #         else:
-        #             table = table.cast(schema)
-        #
-        #         probe = io.BytesIO()
-        #         pq.write_table(table, probe)
-        #
-        #         if probe.tell() >= part_size:
-        #             etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, probe)
-        #             upload_part = UploadPart(etag=etag, part_number=part_number)
-        #             upload_parts.append(upload_part)
-        #             part_number += 1
-        #             batch_rows = []
-        #
-        # # Flush remaining rows as the final part
-        # if batch_rows:
-        #     table = pa.Table.from_pylist(batch_rows)
-        #     if schema is not None:
-        #         table = table.cast(schema)
-        #     buf = io.BytesIO()
-        #     pq.write_table(table, buf)
-        #     etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, buf)
-        #     upload_part = UploadPart(etag=etag, part_number=part_number)
-        #     upload_parts.append(upload_part)
-        #
-        # return upload_parts
         raise NotImplemented
 
     def upload_part(
