@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from csv import DictWriter
 from typing import Optional, Union
+import csv
 
 from lakefs import Client
 from lakefs_sdk import CompletePresignMultipartUpload, UploadPartFrom, UploadPart
@@ -81,31 +83,32 @@ class MultipartUpload:
         part_size: int,
     ) -> list[UploadPart]:
         """Stream CSV rows into parts. Header is written once at the start of the first part."""
-        upload_parts: list[UploadPart] = []
+        upload_parts = []
         part_number = 1
-        part_buffer = io.BytesIO()
-        header_written = False
+        fieldnames = None
+        text_buf = io.StringIO()
+        writer = None
 
         for row in dataset:
-            if not header_written:
-                header_line = ",".join(str(k) for k in row.keys()) + "\n"
-                part_buffer.write(header_line.encode())
-                header_written = True
+            if fieldnames is None:
+                fieldnames = list(row.keys())
+                writer = csv.DictWriter(text_buf, fieldnames=fieldnames)
+                writer.writeheader()
 
-            line = ",".join(str(v) for v in row.values()) + "\n"
-            part_buffer.write(line.encode())
+            writer.writerow(row)
 
-            if part_buffer.tell() >= part_size:
-                etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, part_buffer)
-                upload_part = UploadPart(etag=etag, part_number=part_number)
-                upload_parts.append(upload_part)
+            if text_buf.tell() >= part_size:
+                binary_buf = io.BytesIO(text_buf.getvalue().encode("utf-8"))
+                etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, binary_buf)
+                upload_parts.append(UploadPart(etag=etag, part_number=part_number))
                 part_number += 1
-                part_buffer = io.BytesIO()
+                text_buf = io.StringIO()
+                writer = csv.DictWriter(text_buf, fieldnames=fieldnames)
 
-        if part_buffer.tell() > 0:
-            etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, part_buffer)
-            upload_part = UploadPart(etag=etag, part_number=part_number)
-            upload_parts.append(upload_part)
+        if text_buf.tell() > 0:
+            binary_buf = io.BytesIO(text_buf.getvalue().encode("utf-8"))
+            etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, binary_buf)
+            upload_parts.append(UploadPart(etag=etag, part_number=part_number))
 
         return upload_parts
 
@@ -124,44 +127,45 @@ class MultipartUpload:
         Rows are accumulated; once serialized size >= part_size the part is uploaded.
         Schema is inferred from the first batch and kept consistent across all parts.
         """
-        upload_parts: list[UploadPart] = []
-        part_number = 1
-        batch_rows: list[dict] = []
-        schema: pa.Schema | None = None
-
-        for row in dataset:
-            batch_rows.append(row)
-
-            # Probe size every 1000 rows to avoid serializing on every row
-            if len(batch_rows) % 1000 == 0:
-                table = pa.Table.from_pylist(batch_rows)
-                if schema is None:
-                    schema = table.schema
-                else:
-                    table = table.cast(schema)
-
-                probe = io.BytesIO()
-                pq.write_table(table, probe)
-
-                if probe.tell() >= part_size:
-                    etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, probe)
-                    upload_part = UploadPart(etag=etag, part_number=part_number)
-                    upload_parts.append(upload_part)
-                    part_number += 1
-                    batch_rows = []
-
-        # Flush remaining rows as the final part
-        if batch_rows:
-            table = pa.Table.from_pylist(batch_rows)
-            if schema is not None:
-                table = table.cast(schema)
-            buf = io.BytesIO()
-            pq.write_table(table, buf)
-            etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, buf)
-            upload_part = UploadPart(etag=etag, part_number=part_number)
-            upload_parts.append(upload_part)
-
-        return upload_parts
+        # upload_parts: list[UploadPart] = []
+        # part_number = 1
+        # batch_rows: list[dict] = []
+        # schema: pa.Schema | None = None
+        #
+        # for row in dataset:
+        #     batch_rows.append(row)
+        #
+        #     # Probe size every 1000 rows to avoid serializing on every row
+        #     if len(batch_rows) % 1000 == 0:
+        #         table = pa.Table.from_pylist(batch_rows)
+        #         if schema is None:
+        #             schema = table.schema
+        #         else:
+        #             table = table.cast(schema)
+        #
+        #         probe = io.BytesIO()
+        #         pq.write_table(table, probe)
+        #
+        #         if probe.tell() >= part_size:
+        #             etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, probe)
+        #             upload_part = UploadPart(etag=etag, part_number=part_number)
+        #             upload_parts.append(upload_part)
+        #             part_number += 1
+        #             batch_rows = []
+        #
+        # # Flush remaining rows as the final part
+        # if batch_rows:
+        #     table = pa.Table.from_pylist(batch_rows)
+        #     if schema is not None:
+        #         table = table.cast(schema)
+        #     buf = io.BytesIO()
+        #     pq.write_table(table, buf)
+        #     etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, buf)
+        #     upload_part = UploadPart(etag=etag, part_number=part_number)
+        #     upload_parts.append(upload_part)
+        #
+        # return upload_parts
+        raise NotImplemented
 
     def upload_part(
         self,
