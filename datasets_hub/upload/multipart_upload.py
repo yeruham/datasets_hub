@@ -40,7 +40,6 @@ class MultipartUpload:
         )
         upload_id = multipart.upload_id
         physical_address = multipart.physical_address
-        # etags: list[str] = []
         upload_parts: list[UploadPart] = []
 
         try:

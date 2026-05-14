@@ -13,7 +13,7 @@ Note: returns lakeFS Reference, not HuggingFace CommitInfo.
 Args:
     repo_id: lakeFS repository name.
     revision: branch name.
-    file_type: '.csv' or '.parquet'.
+    file_type: 'csv' or 'parquet'.
     multipart: Use experimental multipart upload API.
                Keeps memory bounded to batch_size bytes at a time.
     batch_size: Part size in bytes. Required when multipart=True. Must be >= 5MB.
@@ -72,7 +72,7 @@ class LFSDatasetDict(DatasetDict):
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
         revision: Optional[str] = None,
-        file_type: str = ".csv",
+        file_type: str = "csv",
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None,
@@ -108,7 +108,7 @@ class LFSIterableDataset(IterableDataset):
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
         revision: Optional[str] = None,
-        file_type: str = ".csv",
+        file_type: str = "csv",
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None,
@@ -144,7 +144,7 @@ class LFSIterableDatasetDict(IterableDatasetDict):
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
         revision: Optional[str] = None,
-        file_type: str = ".csv",
+        file_type: str = "csv",
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None,

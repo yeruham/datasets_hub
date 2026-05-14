@@ -45,7 +45,7 @@ class LFSUpload:
         Upload a Dataset or IterableDataset to lakeFS.
 
         Args:
-            file_type: '.csv' or '.parquet'
+            file_type: 'csv' or 'parquet'
             presign: Use presigned URL for single-shot upload (staging_api).
                      Ignored when multipart=True.
             multipart: Use multipart upload (experimental_api).
