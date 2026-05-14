@@ -3,7 +3,7 @@ from __future__ import annotations
 from lakefs import Repository, Client, Reference
 from typing import Optional
 
-from lakefs_connection import get_lakefs_client
+from datasets_hub.lakefs_connection import get_lakefs_client
 
 
 class DatasetRepo(Repository):

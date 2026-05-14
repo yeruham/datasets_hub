@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 from lakefs import Client
-from lakefs_sdk import CompletePresignMultipartUpload, UploadPartFrom
+from lakefs_sdk import CompletePresignMultipartUpload, UploadPartFrom, UploadPart
 from datasets import Dataset, IterableDataset
 import io
 import requests
@@ -39,22 +39,25 @@ class MultipartUpload:
             path=path,
         )
         upload_id = multipart.upload_id
-        etags: list[str] = []
+        physical_address = multipart.physical_address
+        # etags: list[str] = []
+        upload_parts: list[UploadPart] = []
 
         try:
-            if file_type == ".csv":
-                etags = self.multipart_csv(repo_name, branch, path, upload_id, dataset, part_size)
-            elif file_type == ".parquet":
-                etags = self.multipart_parquet(repo_name, branch, path, upload_id, dataset, part_size)
+            if file_type == "csv":
+                upload_parts = self.multipart_csv(repo_name, branch, path, upload_id, physical_address, dataset, part_size)
+            elif file_type == "parquet":
+                upload_parts = self.multipart_parquet(repo_name, branch, path, upload_id, physical_address, dataset, part_size)
 
             self._client.sdk_client.experimental_api.complete_presign_multipart_upload(
                 repository=repo_name,
                 branch=branch,
                 upload_id=upload_id,
                 path=path,
-                body=CompletePresignMultipartUpload(
-                    physical_address=multipart.physical_address,
-                    etags=etags,
+                complete_presign_multipart_upload=CompletePresignMultipartUpload(
+                    physical_address=physical_address,
+                    parts=upload_parts,
+                    content_type=file_type,
                 ),
             )
             return True
@@ -74,11 +77,12 @@ class MultipartUpload:
         branch: str,
         path: str,
         upload_id: str,
+        physical_address: str,
         dataset: Union[Dataset, IterableDataset],
         part_size: int,
-    ) -> list[str]:
+    ) -> list[UploadPart]:
         """Stream CSV rows into parts. Header is written once at the start of the first part."""
-        etags: list[str] = []
+        upload_parts: list[UploadPart] = []
         part_number = 1
         part_buffer = io.BytesIO()
         header_written = False
@@ -93,16 +97,18 @@ class MultipartUpload:
             part_buffer.write(line.encode())
 
             if part_buffer.tell() >= part_size:
-                etag = self.upload_part(repo_name, branch, path, upload_id, part_number, part_buffer)
-                etags.append(etag)
+                etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, part_buffer)
+                upload_part = UploadPart(etag=etag, part_number=part_number)
+                upload_parts.append(upload_part)
                 part_number += 1
                 part_buffer = io.BytesIO()
 
         if part_buffer.tell() > 0:
-            etag = self.upload_part(repo_name, branch, path, upload_id, part_number, part_buffer)
-            etags.append(etag)
+            etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, part_buffer)
+            upload_part = UploadPart(etag=etag, part_number=part_number)
+            upload_parts.append(upload_part)
 
-        return etags
+        return upload_parts
 
     def multipart_parquet(
         self,
@@ -110,15 +116,16 @@ class MultipartUpload:
         branch: str,
         path: str,
         upload_id: str,
+        physical_address: str,
         dataset: Union[Dataset, IterableDataset],
         part_size: int,
-    ) -> list[str]:
+    ) -> list[UploadPart]:
         """
         Stream parquet parts using PyArrow.
         Rows are accumulated; once serialized size >= part_size the part is uploaded.
         Schema is inferred from the first batch and kept consistent across all parts.
         """
-        etags: list[str] = []
+        upload_parts: list[UploadPart] = []
         part_number = 1
         batch_rows: list[dict] = []
         schema: pa.Schema | None = None
@@ -138,8 +145,9 @@ class MultipartUpload:
                 pq.write_table(table, probe)
 
                 if probe.tell() >= part_size:
-                    etag = self.upload_part(repo_name, branch, path, upload_id, part_number, probe)
-                    etags.append(etag)
+                    etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, probe)
+                    upload_part = UploadPart(etag=etag, part_number=part_number)
+                    upload_parts.append(upload_part)
                     part_number += 1
                     batch_rows = []
 
@@ -150,10 +158,11 @@ class MultipartUpload:
                 table = table.cast(schema)
             buf = io.BytesIO()
             pq.write_table(table, buf)
-            etag = self.upload_part(repo_name, branch, path, upload_id, part_number, buf)
-            etags.append(etag)
+            etag = self.upload_part(repo_name, branch, path, upload_id, physical_address, part_number, buf)
+            upload_part = UploadPart(etag=etag, part_number=part_number)
+            upload_parts.append(upload_part)
 
-        return etags
+        return upload_parts
 
     def upload_part(
         self,
@@ -161,6 +170,7 @@ class MultipartUpload:
         branch: str,
         path: str,
         upload_id: str,
+        physical_address: str,
         part_number: int,
         part_buffer: io.BytesIO,
     ) -> str:
@@ -173,7 +183,7 @@ class MultipartUpload:
             upload_id=upload_id,
             path=path,
             part_number=part_number,
-            body=UploadPartFrom(),
+            upload_part_from=UploadPartFrom(physical_address=physical_address),
         )
 
         response = requests.put(upload_to.presigned_url, data=part_buffer)

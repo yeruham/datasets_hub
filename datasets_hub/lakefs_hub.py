@@ -9,9 +9,9 @@ from datasets import load_dataset as hf_load_dataset, Split, Features
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 from datasets_hub.upload.lfs_upload import LFSUpload
-from dataset_repo import DatasetRepo
-from lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
-from models import PresignedUrl
+from datasets_hub.dataset_repo import DatasetRepo
+from datasets_hub.lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
+from datasets_hub.models import PresignedUrl
 
 
 class LakefsHub(_BaseLakeFSObject):
@@ -57,8 +57,8 @@ class LakefsHub(_BaseLakeFSObject):
             num_proc: Optional[int] = None,
             auth_splits: bool = True,
             **kwargs,
-    ):
-        from lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
+    ) -> Union["LFSDataset", "LFSDatasetDict", "LFSIterableDataset", "LFSIterableDatasetDict"]:
+        from datasets_hub.lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
 
         presign_urls: list[PresignedUrl] = self.lfs_upload.presign.get_presigned_urls(
             repo_name=name, ref=revision, prefix=data_dir

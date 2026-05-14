@@ -4,8 +4,8 @@ import binascii
 
 def content_type_for_file_type(file_type: str) -> str:
     return {
-        ".csv": "text/csv",
-        ".parquet": "application/octet-stream",
+        "csv": "text/csv",
+        "parquet": "application/octet-stream",
     }.get(file_type, "application/octet-stream")
 
 

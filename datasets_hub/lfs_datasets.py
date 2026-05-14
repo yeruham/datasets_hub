@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 from lakefs import Reference
-from lakefs_hub import LakefsHub
+from datasets_hub.lakefs_hub import LakefsHub
 
 _PUSH_DOCSTRING = """
 Push dataset to lakeFS.
@@ -36,7 +36,7 @@ class LFSDataset(Dataset):
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
         revision: Optional[str] = None,
-        file_type: str = ".csv",
+        file_type: str = "csv",
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None,
