@@ -1,18 +1,8 @@
-import os
+from __future__ import annotations
+
 from lakefs import Client
 
-# Credentials should be set via environment variables:
-# LAKEFS_HOST, LAKEFS_USERNAME, LAKEFS_PASSWORD, LAKEFS_ACCESS_TOKEN, LAKEFS_STORAGE_NAMESPACE
-LAKEFS_HOST = os.environ.get("LAKEFS_HOST", "http://localhost:8007")
-LAKEFS_USERNAME = os.environ.get("LAKEFS_USERNAME", "")
-LAKEFS_PASSWORD = os.environ.get("LAKEFS_PASSWORD", "")
-STORAGE_NAMESPACE = os.environ.get("LAKEFS_STORAGE_NAMESPACE", "")
-
-STORAGE_OPTIONS = {
-    "username": LAKEFS_USERNAME,
-    "password": LAKEFS_PASSWORD,
-    "host": LAKEFS_HOST,
-}
+from datasets_hub.settings import HubSettings, get_hub_settings
 
 _client: Client | None = None
 
@@ -22,11 +12,15 @@ def get_lakefs_client(
     username: str | None = None,
     password: str | None = None,
     access_token: str | None = None,
+    settings: HubSettings | None = None,
 ) -> Client:
-    _host = host or LAKEFS_HOST
-    _username = username or LAKEFS_USERNAME
-    _password = password or LAKEFS_PASSWORD
-    _access_token = access_token
+    cfg = settings or get_hub_settings()
+    _host = host or cfg.lakefs_host
+    _username = username or cfg.lakefs_username
+    _password = password or cfg.lakefs_password.get_secret_value()
+    _access_token = access_token or (
+        cfg.lakefs_access_token.get_secret_value() if cfg.lakefs_access_token else None
+    )
 
     global _client
     if (
@@ -43,3 +37,16 @@ def get_lakefs_client(
             access_token=_access_token,
         )
     return _client
+
+
+# Backward-compatible module-level constants
+_settings = get_hub_settings()
+LAKEFS_HOST = _settings.lakefs_host
+LAKEFS_USERNAME = _settings.lakefs_username
+LAKEFS_PASSWORD = _settings.lakefs_password.get_secret_value()
+STORAGE_NAMESPACE = _settings.lakefs_storage_namespace
+STORAGE_OPTIONS = {
+    "username": LAKEFS_USERNAME,
+    "password": LAKEFS_PASSWORD,
+    "host": LAKEFS_HOST,
+}

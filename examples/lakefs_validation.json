@@ -1,0 +1,25 @@
+{
+  "_comment": "lakeFS validation rules — edit steps for your project.",
+  "profile_id": "my_project_v1",
+  "validation_policy": "strict",
+  "sampling_ratio": 0.05,
+  "steps": [
+    {
+      "type": "file_structure",
+      "params": {
+        "required_files": ["train.parquet", "test.parquet"]
+      }
+    },
+    {
+      "type": "schema",
+      "params": {
+        "file": "train.parquet",
+        "columns": {
+          "text": "string",
+          "label": "int"
+        },
+        "strict": true
+      }
+    }
+  ]
+}

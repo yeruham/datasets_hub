@@ -11,6 +11,8 @@ from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 from datasets_hub.upload.lfs_upload import LFSUpload
 from datasets_hub.dataset_repo import DatasetRepo
 from datasets_hub.lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
+from datasets_hub.settings import get_hub_settings
+from datasets_hub.validation.commit import prepare_commit_metadata, upload_profile_to_branch
 from datasets_hub.models import PresignedUrl
 
 
@@ -23,8 +25,15 @@ class LakefsHub(_BaseLakeFSObject):
             password: str | None = None,
             access_token: str | None = None,
     ):
-        self._storage_namespace = STORAGE_NAMESPACE
-        client = get_lakefs_client(host=host, username=username, password=password, access_token=access_token)
+        self._settings = get_hub_settings()
+        self._storage_namespace = STORAGE_NAMESPACE or self._settings.lakefs_storage_namespace
+        client = get_lakefs_client(
+            host=host,
+            username=username,
+            password=password,
+            access_token=access_token,
+            settings=self._settings,
+        )
         self.lfs_upload = LFSUpload(client)
         super().__init__(client)
 
@@ -95,15 +104,24 @@ class LakefsHub(_BaseLakeFSObject):
             presign: bool = True,
             multipart: bool = False,
             batch_size: Optional[int] = None,
+            validation_profile_path: Optional[str] = None,
+            skip_validation: bool = False,
             **kwargs,
     ) -> Reference:
         """
         Push any dataset type to lakeFS and commit.
 
+        Validation (when enabled via env):
+            Place ``lakefs_validation.json`` in your project root.
+            The library injects ``profile=<profile_id>`` into commit metadata and
+            registers the profile with the validation service before commit.
+
         Args:
             multipart: Use experimental multipart upload API. Keeps memory bounded to batch_size.
             batch_size: Part size in bytes. Required when multipart=True. Must be >= 5MB.
             presign: Use presigned URL for single-shot upload. Ignored when multipart=True.
+            validation_profile_path: Override path to validation JSON (default: auto-discover).
+            skip_validation: If True, do not attach validation metadata for this commit.
         """
 
         # Normalize to iterable of (split_name, ds) pairs
@@ -137,5 +155,19 @@ class LakefsHub(_BaseLakeFSObject):
         if num_uploaded != len(pairs):
             raise RuntimeError(f"Upload failed for dataset '{ds_name}' on branch '{branch}'.")
 
+        from pathlib import Path
+
+        final_metadata = dict(commit_metadata or {})
+        profile = None
+        if not skip_validation and self._settings.validation_enabled:
+            profile_path = Path(validation_profile_path) if validation_profile_path else None
+            final_metadata, profile = prepare_commit_metadata(
+                final_metadata,
+                profile_path=profile_path,
+                settings=self._settings,
+            )
+            if profile is not None and branch:
+                upload_profile_to_branch(self._client, ds_name, branch, profile, self._settings)
+
         ds_repo = self.get_ds_repo(ds_name)
-        return ds_repo.branch(branch).commit(commit_message, commit_metadata)
+        return ds_repo.branch(branch).commit(commit_message, final_metadata)

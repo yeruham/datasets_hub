@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://valkyrie.dev/schemas/lakefs-validation/v1",
+  "title": "lakeFS Validation Profile",
+  "description": "Config-driven validation rules applied on lakeFS pre-commit via datasets_hub.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_id", "steps"],
+  "properties": {
+    "_comment": {
+      "type": "string",
+      "description": "Human-readable note (ignored by the validation engine)."
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_]*_v[0-9]+$",
+      "description": "Unique profile identifier referenced in commit metadata (e.g. ner_v1)."
+    },
+    "validation_policy": {
+      "type": "string",
+      "enum": ["strict", "warn"],
+      "default": "strict",
+      "description": "strict: block commit on failure; warn: report warnings only."
+    },
+    "sampling_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.05,
+      "description": "Fraction of rows sampled for content-level checks."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered validation steps executed by the validation service.",
+      "items": { "$ref": "#/$defs/validationStep" }
+    }
+  },
+  "$defs": {
+    "validationStep": {
+      "type": "object",
+      "required": ["type", "params"],
+      "additionalProperties": false,
+      "properties": {
+        "_comment": { "type": "string" },
+        "type": {
+          "type": "string",
+          "description": "Validator plugin name."
+        },
+        "params": { "type": "object" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "file_structure" },
+            "params": { "$ref": "#/$defs/fileStructureParams" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "file_existence" },
+            "params": { "$ref": "#/$defs/fileStructureParams" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "schema" },
+            "params": { "$ref": "#/$defs/schemaParams" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "regex" },
+            "params": { "$ref": "#/$defs/regexParams" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "range" },
+            "params": { "$ref": "#/$defs/rangeParams" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "ner_format" },
+            "params": { "$ref": "#/$defs/nerFormatParams" }
+          }
+        }
+      ]
+    },
+    "fileStructureParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_files": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "Basenames that must exist in the commit."
+        },
+        "required_patterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Regex patterns; at least one file path must match each."
+        },
+        "naming_rules": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "schemaParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Target parquet/csv basename; omit to scan all tabular files."
+        },
+        "columns": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["string", "str", "int", "int64", "float", "double", "bool", "object"]
+          },
+          "minProperties": 1
+        },
+        "strict": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, run Pandera checks on a data sample."
+        }
+      }
+    },
+    "regexParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "pattern"],
+      "properties": {
+        "file": { "type": "string" },
+        "pattern": { "type": "string", "description": "Python regex; fullmatch for strings." },
+        "column": { "type": "string", "description": "Required for parquet/csv." },
+        "field": { "type": "string", "description": "JSON field name when file is .json." }
+      }
+    },
+    "rangeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "column"],
+      "properties": {
+        "file": { "type": "string" },
+        "column": { "type": "string" },
+        "min": { "type": "number" },
+        "max": { "type": "number" }
+      }
+    },
+    "nerFormatParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string" },
+        "column": { "type": "string", "default": "entities" }
+      }
+    }
+  }
+}
