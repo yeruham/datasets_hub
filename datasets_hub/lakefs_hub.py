@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional, Union, cast, Literal
 
-from lakefs import repository, repositories, Reference
+from lakefs import repositories
 from lakefs.client import _BaseLakeFSObject
 from datasets import load_dataset as hf_load_dataset, Split, Features
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 from datasets_hub.upload.lfs_upload import LFSUpload
-from datasets_hub.dataset_repo import DatasetRepo
+from datasets_hub.ds_repo import DatasetReference, DatasetRepo
 from datasets_hub.lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
-from datasets_hub.models import PresignedUrl
+from datasets_hub.models import CommitMetadata, DatasetMetadata, MetadataInput, PresignedUrl
 
 
 class LakefsHub(_BaseLakeFSObject):
@@ -32,15 +31,21 @@ class LakefsHub(_BaseLakeFSObject):
     def list_ds_repos(self, prefix: str | None = None, after: str | None = None, **kwargs) -> list[str]:
         return [repo.id for repo in repositories(client=self._client, prefix=prefix, after=after, **kwargs)]
 
-    def create_ds_repo(self, name: str) -> DatasetRepo:
-        repo = DatasetRepo(repository_id=name, client=self._client).create(
-            storage_namespace=self._storage_namespace
-        )
-        return DatasetRepo.from_repo(repo)
+
+    def create_ds_repo(self, name: str, metadata: DatasetMetadata | MetadataInput) -> DatasetRepo:
+        return DatasetRepo(
+            repository_id=name,
+            client=self._client,
+            storage_namespace=self._storage_namespace,
+        ).create(metadata)
+
 
     def get_ds_repo(self, name: str) -> DatasetRepo:
-        repo = repository(repository_id=name, client=self._client)
-        return DatasetRepo.from_repo(repo)
+        return DatasetRepo(
+            repository_id=name,
+            client=self._client,
+            storage_namespace=self._storage_namespace,
+        )
 
 
     def load_dataset(
@@ -87,8 +92,8 @@ class LakefsHub(_BaseLakeFSObject):
             dataset: Dataset | DatasetDict | IterableDataset | IterableDatasetDict,
             ds_name: str,
             commit_message: str,
+            commit_metadata: CommitMetadata | MetadataInput,
             file_type: str = "csv",
-            commit_metadata: Optional[dict] = None,
             split: Optional[str] = None,
             data_dir: Optional[str] = None,
             branch: Optional[str] = None,
@@ -96,7 +101,7 @@ class LakefsHub(_BaseLakeFSObject):
             multipart: bool = False,
             batch_size: Optional[int] = None,
             **kwargs,
-    ) -> Reference:
+    ) -> DatasetReference:
         """
         Push any dataset type to lakeFS and commit.
 
@@ -105,37 +110,15 @@ class LakefsHub(_BaseLakeFSObject):
             batch_size: Part size in bytes. Required when multipart=True. Must be >= 5MB.
             presign: Use presigned URL for single-shot upload. Ignored when multipart=True.
         """
-
-        # Normalize to iterable of (split_name, ds) pairs
-        if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
-            pairs = [(ds_split, dataset[ds_split]) for ds_split in dataset.keys()]
-        elif isinstance(dataset, (Dataset, IterableDataset)):
-            split_name = split or (str(dataset.split) if hasattr(dataset, "split") else None)
-            pairs = [(split_name, dataset)]
-        else:
-            raise TypeError(f"Unsupported dataset type: {type(dataset)}")
-
-        num_uploaded = 0
-        for ds_split, ds in pairs:
-            path_parts = [data_dir, ds_split]
-            full_path = "/".join(p.strip("/") for p in path_parts if p)
-            ext = file_type if file_type.startswith('.') else f".{file_type}"
-            full_path += ext
-            success = self.lfs_upload.upload_dataset(
-                dataset=ds,
-                repo_name=ds_name,
-                branch=branch,
-                path=full_path,
-                file_type=file_type,
-                presign=presign,
-                multipart=multipart,
-                batch_size=batch_size,
-            )
-            if success:
-                num_uploaded += 1
-
-        if num_uploaded != len(pairs):
-            raise RuntimeError(f"Upload failed for dataset '{ds_name}' on branch '{branch}'.")
-
         ds_repo = self.get_ds_repo(ds_name)
-        return ds_repo.branch(branch).commit(commit_message, commit_metadata)
+        ds_repo.upload_dataset(
+            dataset=dataset,
+            file_type=file_type,
+            split=split,
+            data_dir=data_dir,
+            branch=branch,
+            presign=presign,
+            multipart=multipart,
+            batch_size=batch_size
+        )
+        return ds_repo.commit(branch=branch, message=commit_message, metadata=commit_metadata)

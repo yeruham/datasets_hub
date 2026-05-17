@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
-from lakefs import Reference
 from datasets_hub.lakefs_hub import LakefsHub
+from datasets_hub.ds_repo import DatasetReference
+from datasets_hub.models import CommitMetadata
 
 _PUSH_DOCSTRING = """
 Push dataset to lakeFS.
@@ -12,6 +13,7 @@ Note: returns lakeFS Reference, not HuggingFace CommitInfo.
 
 Args:
     repo_id: lakeFS repository name.
+    metadata: Required metadata for the saved dataset version.
     revision: branch name.
     file_type: 'csv' or 'parquet'.
     multipart: Use experimental multipart upload API.
@@ -31,6 +33,7 @@ class LFSDataset(Dataset):
     def push_to_hub(
         self,
         repo_id: str,
+        metadata: CommitMetadata,
         split: Optional[str] = None,
         data_dir: Optional[str] = None,
         commit_message: Optional[str] = "",
@@ -41,13 +44,14 @@ class LFSDataset(Dataset):
         multipart: bool = False,
         batch_size: Optional[int] = None,
         **kwargs,
-    ) -> Reference:
+    ) -> DatasetReference:
         return LakefsHub().push_and_commit_dataset(
             dataset=self,
             ds_name=repo_id,
             data_dir=data_dir,
             split=split,
             commit_message=commit_message,
+            commit_metadata=metadata,
             branch=revision,
             file_type=file_type,
             presign=presign,
@@ -68,6 +72,7 @@ class LFSDatasetDict(DatasetDict):
     def push_to_hub(
         self,
         repo_id: str,
+        metadata: CommitMetadata,
         data_dir: Optional[str] = None,
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
@@ -77,12 +82,13 @@ class LFSDatasetDict(DatasetDict):
         multipart: bool = False,
         batch_size: Optional[int] = None,
         **kwargs,
-    ) -> Reference:
+    ) -> DatasetReference:
         return LakefsHub().push_and_commit_dataset(
             dataset=self,
             ds_name=repo_id,
             data_dir=data_dir,
             commit_message=commit_message,
+            commit_metadata=metadata,
             branch=revision,
             file_type=file_type,
             presign=presign,
@@ -103,6 +109,7 @@ class LFSIterableDataset(IterableDataset):
     def push_to_hub(
         self,
         repo_id: str,
+        metadata: CommitMetadata,
         split: Optional[str] = None,
         data_dir: Optional[str] = None,
         commit_message: Optional[str] = "",
@@ -113,13 +120,14 @@ class LFSIterableDataset(IterableDataset):
         multipart: bool = False,
         batch_size: Optional[int] = None,
         **kwargs,
-    ) -> Reference:
+    ) -> DatasetReference:
         return LakefsHub().push_and_commit_dataset(
             dataset=self,
             ds_name=repo_id,
             data_dir=data_dir,
             split=split,
             commit_message=commit_message,
+            commit_metadata=metadata,
             branch=revision,
             file_type=file_type,
             presign=presign,
@@ -140,6 +148,7 @@ class LFSIterableDatasetDict(IterableDatasetDict):
     def push_to_hub(
         self,
         repo_id: str,
+        metadata: CommitMetadata,
         data_dir: Optional[str] = None,
         commit_message: Optional[str] = "",
         token: Optional[str] = None,
@@ -149,12 +158,13 @@ class LFSIterableDatasetDict(IterableDatasetDict):
         multipart: bool = False,
         batch_size: Optional[int] = None,
         **kwargs,
-    ) -> Reference:
+    ) -> DatasetReference:
         return LakefsHub().push_and_commit_dataset(
             dataset=self,
             ds_name=repo_id,
             data_dir=data_dir,
             commit_message=commit_message,
+            commit_metadata=metadata,
             branch=revision,
             file_type=file_type,
             presign=presign,
