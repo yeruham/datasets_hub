@@ -4,12 +4,12 @@ from typing import Optional, Union, cast, Literal
 
 from lakefs import repositories
 from lakefs.client import _BaseLakeFSObject
-from datasets import load_dataset as hf_load_dataset, Split, Features
+from datasets import Split, Features
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 
 from datasets_hub.upload.lfs_upload import LFSUpload
 from datasets_hub.ds_repo import DatasetReference, DatasetRepo
-from datasets_hub.lakefs_connection import get_lakefs_client, STORAGE_NAMESPACE
+from datasets_hub.lakefs_connection import get_lakefs_client, BASE_STORAGE_NAMESPACE
 from datasets_hub.models import CommitMetadata, DatasetMetadata, MetadataInput, PresignedUrl
 
 
@@ -22,7 +22,7 @@ class LakefsHub(_BaseLakeFSObject):
             password: str | None = None,
             access_token: str | None = None,
     ):
-        self._storage_namespace = STORAGE_NAMESPACE
+        self._storage_namespace = BASE_STORAGE_NAMESPACE
         client = get_lakefs_client(host=host, username=username, password=password, access_token=access_token)
         self.lfs_upload = LFSUpload(client)
         super().__init__(client)
@@ -63,28 +63,19 @@ class LakefsHub(_BaseLakeFSObject):
             auth_splits: bool = True,
             **kwargs,
     ) -> Union["LFSDataset", "LFSDatasetDict", "LFSIterableDataset", "LFSIterableDatasetDict"]:
-        from datasets_hub.lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
-
-        presign_urls: list[PresignedUrl] = self.lfs_upload.presign.get_presigned_urls(
-            repo_name=name, ref=revision, prefix=data_dir
-        )
-
-        if auth_splits:
-            data_files = {obj.name: obj.physical_address for obj in presign_urls}
-        else:
-            data_files = [obj.physical_address for obj in presign_urls]
-
-        ds = hf_load_dataset(
-            path=path,
-            data_files=data_files,
+        ds_repo = self.get_ds_repo(name)
+        return ds_repo.get_dataset(
+            file_type=path,
+            ref=revision,
+            data_dir=data_dir,
             split=split,
-            streaming=cast(Literal[False], streaming),
             features=features,
             keep_in_memory=keep_in_memory,
+            streaming=streaming,
             num_proc=num_proc,
+            auth_splits=auth_splits,
+            **kwargs,
         )
-
-        return _convert_ds_to_lfs(ds)
 
 
     def push_and_commit_dataset(

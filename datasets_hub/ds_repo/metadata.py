@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from datasets_hub.models import MetadataInput
 
-DATASET_METADATA_PATH = "_datasets_hub/metadata/dataset.json"
+DATASET_METADATA_PATH = "_datasets_hub/metadata.json"
 
 
 def metadata_to_dict(metadata: MetadataInput) -> dict[str, Any]:

@@ -1,38 +1,38 @@
-from datasets_hub.lakefs_hub import LakefsHub
-
+from datasets import Dataset
+from datasets_hub import LakefsHub, DatasetRepo, DatasetMetadata, CommitMetadata
 
 hub = LakefsHub()
-ds_names = hub.list_ds_repos()
-print(ds_names)
-ds = hub.load_dataset("csv", "test", "c7a38422a406b46804557471edd4477cc37843d8e6d09ae4f1aafa030ae947b3")
-print(type(ds))
-print(ds)
-# train = ds["train"]
-for r in ds:
-    print(r)
+ds_repos = hub.list_ds_repos()
+print(ds_repos)
 
-commit = ds.push_to_hub(repo_id="test", data_dir="data", revision="dev-branch", commit_message=" sdk commit!!!",  file_type="parquet")
+ds_metadata = DatasetMetadata.model_validate({"by": "yeruham"}) # TODO: add metadata
+ds_repo = hub.get_ds_repo(name="repo-3").create(metadata=ds_metadata)
+print(ds_repo)
+print(ds_repo.metadata)
+
+branches = ds_repo.branches()
+for branch in branches:
+    print(branch)
+
+data_dict = {
+    "id": [1, 2, 3, 4],
+    "text":  ["dog", "lion", "cat", "tiger"],
+    "label": [0, 1, 1, 0]
+}
+ds = Dataset.from_dict(mapping=data_dict)
+print(ds)
+
+uploaded = ds_repo.upload_dataset(dataset=ds)
+load_ds = ds_repo.get_dataset()
+print(f"load _ds type: {type(load_ds)}")
+print(load_ds)
+
+branch = ds_repo.branch()
+uncommitted = branch.uncommitted()
+for uncommit in uncommitted:
+    print(uncommit)
+
+commit_metadata = CommitMetadata() # TODO: add metadata
+commit_message = "commit after dataset uploaded"
+commit = branch.commit(message=commit_message, metadata=commit_metadata)
 print(commit)
-from datasets import load_dataset
-# ds = load_dataset('nyu-mll/glue', 'sst2', streaming=True)
-# print(type(ds))
-# print(ds)
-# train = ds["train"]
-# num = 0
-# for i in train:
-#     num += 1
-#     print(i)
-#     if num > 10:
-#         break
-#
-# from datasets import load_dataset
-# ds = load_dataset('cornell-movie-review-data/rotten_tomatoes', split='train', streaming=True)
-# print(type(ds))
-# print(ds)
-# # train = ds["train"]
-# num = 0
-# for i in ds:
-#     num += 1
-#     print(i)
-#     if num > 10:
-#         break

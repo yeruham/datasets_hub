@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, Optional, cast, Union
 
 from datasets import Dataset, DatasetDict, Features, IterableDataset, IterableDatasetDict, Split
 from datasets import load_dataset as hf_load_dataset
 from lakefs import Client, Repository, repository, Tag
 
-from datasets_hub.lakefs_connection import STORAGE_NAMESPACE, get_lakefs_client
-from datasets_hub.models import CommitMetadata, DatasetMetadata
+from datasets_hub.lakefs_connection import BASE_STORAGE_NAMESPACE, get_lakefs_client
+from datasets_hub.models import CommitMetadata, DatasetMetadata, PresignedUrl
 from datasets_hub.upload.lfs_upload import LFSUpload
 from datasets_hub.ds_repo.dataset_branch import DatasetBranch
 from datasets_hub.ds_repo.dataset_reference import DatasetReference
@@ -31,8 +32,9 @@ class DatasetRepo:
     ):
         self._client = client if isinstance(client, Client) else get_lakefs_client()
         self._repo = lakefs_repo or repository(repository_id=repository_id, client=self._client)
-        self._storage_namespace = storage_namespace or STORAGE_NAMESPACE
+        self._storage_namespace = f"{storage_namespace or BASE_STORAGE_NAMESPACE}/{repository_id}"
         self._lfs_upload = LFSUpload(self._client)
+        self._default_branch = "main"
 
     @classmethod
     def from_repo(cls, repo: Repository, storage_namespace: Optional[str] = None) -> DatasetRepo:
@@ -48,12 +50,14 @@ class DatasetRepo:
         return self._repo.id
 
     @property
-    def lakefs_repo(self) -> Repository:
+    def _lakefs_repo(self) -> Repository:
         return self._repo
 
     @property
     def metadata(self) -> dict[str, str]:
-        return self._repo.metadata
+        with self._repo.branch(self._default_branch).object(DATASET_METADATA_PATH).reader() as f:
+            repo_metadata = f.read()
+        return json.loads(repo_metadata)
 
     @property
     def properties(self) -> Any:
@@ -62,7 +66,6 @@ class DatasetRepo:
     def create(
         self,
         metadata: DatasetMetadata,
-        default_branch: str = "main",
         include_samples: bool = False,
         exist_ok: bool = False,
         **kwargs: Any,
@@ -70,12 +73,12 @@ class DatasetRepo:
         _.create_ds_confirm(metadata)
         self._repo.create(
             storage_namespace=self._storage_namespace,
-            default_branch=default_branch,
+            default_branch=self._default_branch,
             include_samples=include_samples,
             exist_ok=exist_ok,
             **kwargs,
         )
-        branch = self._repo.branch(default_branch)
+        branch = self._repo.branch(self._default_branch)
         branch.object(DATASET_METADATA_PATH).upload(
             metadata_to_json(metadata),
             content_type="application/json",
@@ -109,7 +112,7 @@ class DatasetRepo:
     ) -> DatasetBranch:
         return DatasetBranch(self._repo.branch(name).create(source_ref, exist_ok=exist_ok, **kwargs))
 
-    def branch(self, name: str) -> DatasetBranch:
+    def branch(self, name: str = "main") -> DatasetBranch:
         return DatasetBranch(self._repo.branch(name))
 
     def branches(
@@ -127,7 +130,7 @@ class DatasetRepo:
         ):
             yield DatasetBranch(branch)
 
-    def commit_ref(self, commit_id: str) -> DatasetReference:
+    def get_commit(self, commit_id: str) -> DatasetReference:
         return DatasetReference(self._repo.commit(commit_id))
 
     def ref(self, ref_id: str) -> DatasetReference:
@@ -160,36 +163,43 @@ class DatasetRepo:
     def commits(self, ref: str, *args: Any, **kwargs: Any) -> Any:
         return self.ref(ref).log(*args, **kwargs)
 
-    def load_dataset(
+    def get_dataset(
         self,
-        path: str,
-        ref: str,
+        file_type: str = "csv",
+        ref: str = "main",
         data_dir: Optional[str] = None,
         split: Optional[str | Split | list[str] | list[Split]] = None,
         features: Optional[Features] = None,
         keep_in_memory: Optional[bool] = None,
         streaming: bool = False,
         num_proc: Optional[int] = None,
+        auth_splits: bool = True,
         **kwargs: Any,
-    ) -> Dataset | DatasetDict | IterableDataset | IterableDatasetDict:
-        from datasets_hub.lfs_datasets import _convert_ds_to_lfs
+    ) -> Union["LFSDataset", "LFSDatasetDict", "LFSIterableDataset", "LFSIterableDatasetDict"]:
+        from datasets_hub.lfs_datasets import _convert_ds_to_lfs  # local import to avoid circular dependency
 
-        presign_urls = self._lfs_upload.presign.get_presigned_urls(
+        presign_urls: list[PresignedUrl] = self._lfs_upload.presign.get_presigned_urls(
             repo_name=self.id,
             ref=ref,
             prefix=data_dir,
         )
-        data_files = {obj.name: obj.physical_address for obj in presign_urls}
+
+        metadata_filename = _.get_metadata_file_name()
+        presign_urls = [obj for obj in presign_urls if obj.name != metadata_filename]
+
+        if auth_splits:
+            data_files = {obj.name: obj.physical_address for obj in presign_urls}
+        else:
+            data_files = [obj.physical_address for obj in presign_urls]
 
         ds = hf_load_dataset(
-            path=path,
+            path=file_type,
             data_files=data_files,
             split=split,
             streaming=cast(Literal[False], streaming),
             features=features,
             keep_in_memory=keep_in_memory,
             num_proc=num_proc,
-            **kwargs,
         )
         return _convert_ds_to_lfs(ds)
 
@@ -197,15 +207,14 @@ class DatasetRepo:
     def upload_dataset(
         self,
         dataset: Dataset | DatasetDict | IterableDataset | IterableDatasetDict,
+        branch: str = "main",
         file_type: str = "csv",
         split: Optional[str] = None,
         data_dir: Optional[str] = None,
-        branch: Optional[str] = None,
         presign: bool = True,
         multipart: bool = False,
         batch_size: Optional[int] = None
         ):
-        target_branch = branch or "main"
         pairs = _.dataset_pairs(dataset=dataset, split=split)
 
         num_uploaded = 0
@@ -214,7 +223,7 @@ class DatasetRepo:
             success = self._lfs_upload.upload_dataset(
                 dataset=ds,
                 repo_name=self.id,
-                branch=target_branch,
+                branch=branch,
                 path=full_path,
                 file_type=file_type,
                 presign=presign,
@@ -225,7 +234,7 @@ class DatasetRepo:
                 num_uploaded += 1
 
         if num_uploaded != len(pairs):
-            raise RuntimeError(f"Upload failed for dataset '{self.id}' on branch '{target_branch}'.")
+            raise RuntimeError(f"Upload failed for dataset '{self.id}' on branch '{branch}'.")
 
 
     def __repr__(self) -> str:

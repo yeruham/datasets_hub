@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from pathlib import Path
 
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 from datasets_hub.models import CommitMetadata, DatasetMetadata
@@ -23,7 +24,7 @@ def dataset_pairs(
     if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
         return [(ds_split, dataset[ds_split]) for ds_split in dataset.keys()]
     if isinstance(dataset, (Dataset, IterableDataset)):
-        split_name = split or (str(dataset.split) if hasattr(dataset, "split") else None)
+        split_name = split or dataset.split or "train"
         return [(split_name, dataset)]
     raise TypeError(f"Unsupported dataset type: {type(dataset)}")
 
@@ -37,3 +38,6 @@ def dataset_object_path(
     full_path = "/".join(p.strip("/") for p in path_parts if p)
     ext = file_type if file_type.startswith(".") else f".{file_type}"
     return f"{full_path}{ext}"
+
+def get_metadata_file_name() -> str:
+    return Path(DATASET_METADATA_PATH).stem

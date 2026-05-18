@@ -53,7 +53,7 @@ class DatasetReference:
     def merge_into(
         self,
         destination_branch: Any,
-        metadata: CommitMetadata | MetadataInput,
+        metadata: CommitMetadata,
         message: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
@@ -63,9 +63,6 @@ class DatasetReference:
             metadata=metadata_to_lakefs(metadata),
             **kwargs,
         )
-
-    def object(self, path: str) -> Any:
-        return self._reference.object(path)
 
     def objects(
         self,

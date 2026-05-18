@@ -3,10 +3,10 @@ from lakefs import Client
 
 # Credentials should be set via environment variables:
 # LAKEFS_HOST, LAKEFS_USERNAME, LAKEFS_PASSWORD, LAKEFS_ACCESS_TOKEN, LAKEFS_STORAGE_NAMESPACE
-LAKEFS_HOST = os.environ.get("LAKEFS_HOST", "http://localhost:8007")
+LAKEFS_HOST = os.environ.get("LAKEFS_HOST", "http://localhost:8005")
 LAKEFS_USERNAME = os.environ.get("LAKEFS_USERNAME", "")
 LAKEFS_PASSWORD = os.environ.get("LAKEFS_PASSWORD", "")
-STORAGE_NAMESPACE = os.environ.get("LAKEFS_STORAGE_NAMESPACE", "")
+BASE_STORAGE_NAMESPACE = os.environ.get("LAKEFS_STORAGE_NAMESPACE", "s3://datasets-hub")
 
 STORAGE_OPTIONS = {
     "username": LAKEFS_USERNAME,
