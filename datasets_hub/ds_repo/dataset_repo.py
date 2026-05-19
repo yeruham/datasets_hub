@@ -6,6 +6,7 @@ from typing import Any, Literal, Optional, cast, Union
 from datasets import Dataset, DatasetDict, Features, IterableDataset, IterableDatasetDict, Split
 from datasets import load_dataset as hf_load_dataset
 from lakefs import Client, Repository, repository, Tag
+from lakefs.exceptions import ConflictException
 
 from datasets_hub.lakefs_connection import BASE_STORAGE_NAMESPACE, get_lakefs_client
 from datasets_hub.models import CommitMetadata, DatasetMetadata, PresignedUrl
@@ -71,13 +72,18 @@ class DatasetRepo:
         **kwargs: Any,
     ) -> DatasetRepo:
         _.create_ds_confirm(metadata)
-        self._repo.create(
-            storage_namespace=self._storage_namespace,
-            default_branch=self._default_branch,
-            include_samples=include_samples,
-            exist_ok=exist_ok,
-            **kwargs,
-        )
+        try:
+            self._repo.create(
+                storage_namespace=self._storage_namespace,
+                default_branch=self._default_branch,
+                include_samples=include_samples,
+                exist_ok=False,
+                **kwargs,
+            )
+        except Exception as e:
+            if isinstance(e, ConflictException) and exist_ok:
+                return self
+            raise e
         branch = self._repo.branch(self._default_branch)
         branch.object(DATASET_METADATA_PATH).upload(
             metadata_to_json(metadata),
