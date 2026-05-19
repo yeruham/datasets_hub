@@ -1,38 +1,52 @@
-from datasets_hub.lakefs_hub import LakefsHub
+from datasets import Dataset
+from datasets_hub import LakefsHub, DatasetRepo, DatasetMetadata, CommitMetadata
 
-
+# init lakefs hub connection
 hub = LakefsHub()
-ds_names = hub.list_ds_repos()
-print(ds_names)
-ds = hub.load_dataset("csv", "test", "c7a38422a406b46804557471edd4477cc37843d8e6d09ae4f1aafa030ae947b3")
-print(type(ds))
-print(ds)
-# train = ds["train"]
-for r in ds:
-    print(r)
+# get list of all datasets-repos from the hub
+ds_repos = hub.list_ds_repos()
+print("get list of all datasets-repos from the hub")
+print(ds_repos)
 
-commit = ds.push_to_hub(repo_id="test", data_dir="data", revision="dev-branch", commit_message=" sdk commit!!!",  file_type="parquet")
+# create new dataset-repo + metadata through the LakefsHub
+ds_metadata = DatasetMetadata.model_validate({"created_by": "some user"}) # TODO: add metadata schema
+ds_repo = hub.get_ds_repo(name="my-repo").create(metadata=ds_metadata)
+print(f"create new DatasetRepo: {ds_repo.id}")
+print(ds_repo)
+print(ds_repo.metadata)
+
+# get the branches of the DatasetRepo
+branches = ds_repo.branches()
+for branch in branches:
+    print(branch)
+
+# create Dataset example for upload
+data_dict = {
+    "id": [1, 2, 3, 4],
+    "text":  ["dog", "lion", "cat", "tiger"],
+    "label": [0, 1, 1, 0]
+}
+ds = Dataset.from_dict(mapping=data_dict)
+print("create Dataset example for upload: ")
+print(ds)
+
+# upload the Dataset to the DatasetRepo
+uploaded = ds_repo.upload_dataset(dataset=ds)
+print("upload the Dataset to the DatasetRepo success")
+
+# after the upload - get the current DatasetBranch from DatasetRepo and print the uncommitted changes
+branch = ds_repo.branch()
+uncommitted = branch.uncommitted()
+for uncommit in uncommitted:
+    print(uncommit)
+
+# load the Dataset back from the DatasetRepo
+load_ds = ds_repo.get_dataset()
+print(f"load _ds type: {type(load_ds)}")
+print(load_ds)
+
+# commit the changes + metadata by DatasetBranch
+commit_metadata = CommitMetadata() # TODO: add metadata schema
+commit_message = "commit after dataset uploaded"
+commit = branch.commit(message=commit_message, metadata=commit_metadata)
 print(commit)
-from datasets import load_dataset
-# ds = load_dataset('nyu-mll/glue', 'sst2', streaming=True)
-# print(type(ds))
-# print(ds)
-# train = ds["train"]
-# num = 0
-# for i in train:
-#     num += 1
-#     print(i)
-#     if num > 10:
-#         break
-#
-# from datasets import load_dataset
-# ds = load_dataset('cornell-movie-review-data/rotten_tomatoes', split='train', streaming=True)
-# print(type(ds))
-# print(ds)
-# # train = ds["train"]
-# num = 0
-# for i in ds:
-#     num += 1
-#     print(i)
-#     if num > 10:
-#         break

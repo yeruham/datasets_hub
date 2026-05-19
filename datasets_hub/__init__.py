@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from datasets_hub.settings import HubSettings, get_hub_settings
 
 if TYPE_CHECKING:
-    from datasets_hub.dataset_repo import DatasetRepo
+    from datasets_hub.ds_repo import DatasetRepo
     from datasets_hub.lakefs_hub import LakefsHub
     from datasets_hub.lfs_datasets import (
         LFSDataset,
@@ -21,7 +21,11 @@ __all__ = [
     "LFSDatasetDict",
     "LFSIterableDataset",
     "LFSIterableDatasetDict",
+    "DatasetBranch",
+    "DatasetReference",
     "DatasetRepo",
+    "CommitMetadata",
+    "DatasetMetadata",
     "HubSettings",
     "get_hub_settings",
     "ValidationProfile",
