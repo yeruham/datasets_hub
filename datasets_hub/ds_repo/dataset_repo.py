@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Any, Literal, Optional, cast, Union
+from pathlib import Path
 
 from datasets import Dataset, DatasetDict, Features, IterableDataset, IterableDatasetDict, Split
 from datasets import load_dataset as hf_load_dataset
 from lakefs import Client, Repository, repository, Tag
 from lakefs.exceptions import ConflictException
 
+from datasets_hub.datasets_hub.validation.commit import prepare_commit_metadata, upload_profile_to_branch
 from datasets_hub.lakefs_connection import BASE_STORAGE_NAMESPACE, get_lakefs_client
 from datasets_hub.models import CommitMetadata, DatasetMetadata, PresignedUrl
 from datasets_hub.upload.lfs_upload import LFSUpload
@@ -104,10 +106,23 @@ class DatasetRepo:
         branch: str,
         message: str,
         metadata: CommitMetadata,
+        validation_profile_path: Optional[str] = None,
+        skip_validation: bool = False,
         **kwargs: Any,
     ) -> DatasetReference:
         _.commit_confirm(message, metadata)
-        return self.branch(branch).commit(message=message, metadata=metadata, **kwargs)
+        profile = None
+        if not skip_validation and self._settings.validation_enabled:
+            profile_path = Path(validation_profile_path) if validation_profile_path else None
+            final_metadata, profile = prepare_commit_metadata(
+                metadata=metadata,
+                profile_path=profile_path,
+                settings=self._settings,
+            )
+            if profile is not None and branch:
+                upload_profile_to_branch(self._client, self.id, branch, profile, self._settings)
+
+        return self.branch(branch).commit(message=message, metadata=final_metadata, **kwargs)
 
     def create_branch(
         self,
