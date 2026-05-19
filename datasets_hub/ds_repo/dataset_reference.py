@@ -6,6 +6,7 @@ from lakefs import Reference
 
 from datasets_hub.models import CommitMetadata
 from datasets_hub.ds_repo.metadata import metadata_to_lakefs
+from datasets_hub.ds_repo import utils as _
 
 
 class DatasetReference:
@@ -54,9 +55,10 @@ class DatasetReference:
         self,
         destination_branch: Any,
         metadata: CommitMetadata,
-        message: Optional[str] = None,
+        message: str,
         **kwargs: Any,
     ) -> str:
+        _.commit_confirm(message, metadata)
         return self._reference.merge_into(
             destination_branch,
             message=message,
