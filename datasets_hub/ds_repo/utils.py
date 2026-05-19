@@ -5,6 +5,7 @@ from pathlib import Path
 
 from datasets import Dataset, DatasetDict, IterableDataset, IterableDatasetDict
 from datasets_hub.models import CommitMetadata, DatasetMetadata
+DATASET_METADATA_PATH = "_datasets_hub/metadata.json"
 
 def create_ds_confirm(metadata: DatasetMetadata):
     if not isinstance(metadata, DatasetMetadata):
@@ -24,7 +25,7 @@ def dataset_pairs(
     if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
         return [(ds_split, dataset[ds_split]) for ds_split in dataset.keys()]
     if isinstance(dataset, (Dataset, IterableDataset)):
-        split_name = split or dataset.split or "train"
+        split_name = split or str(dataset.split) or "train"
         return [(split_name, dataset)]
     raise TypeError(f"Unsupported dataset type: {type(dataset)}")
 

@@ -18,7 +18,7 @@ Args:
     file_type: 'csv' or 'parquet'.
     multipart: Use experimental multipart upload API.
                Keeps memory bounded to batch_size bytes at a time.
-    batch_size: Part size in bytes. Required when multipart=True. Must be >= 5MB.
+    batch_size: Part size in megabytes. Required when multipart=True. Must be >= 5MB.
     presign: Use presigned URL for single-shot upload. Ignored when multipart=True.
 """
 

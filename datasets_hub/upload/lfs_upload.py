@@ -13,7 +13,7 @@ from datasets_hub.upload.utils import extract_etag_from_response, content_type_f
 SUPPORTED_FILE_TYPES = {"csv", "parquet"}
 
 # S3 minimum part size is 5MB (except for the last part)
-MIN_PART_SIZE_BYTES = 5 * 1024 * 1024
+MIN_PART_SIZE_MEGABYTES = 5
 
 
 class LFSUpload:
@@ -51,7 +51,7 @@ class LFSUpload:
             multipart: Use multipart upload (experimental_api).
                        Keeps memory bounded to batch_size bytes at a time.
             batch_size: Part size in bytes. Required when multipart=True.
-                        Must be >= 5MB (MIN_PART_SIZE_BYTES) except for the last part.
+                        Must be >= 5MB (MIN_PART_SIZE_MEGABYTES) except for the last part.
         """
         if file_type not in SUPPORTED_FILE_TYPES:
             raise ValueError(f"Unsupported file_type '{file_type}'. Supported: {SUPPORTED_FILE_TYPES}")
@@ -60,14 +60,15 @@ class LFSUpload:
             raise ValueError("batch_size is required when multipart=True.")
 
         if not multipart and batch_size is not None:
-            raise ValueError("batch_size has no effect when multipart=False.")
+            print("batch_size has no effect when multipart=False.")
 
-        if multipart and batch_size < MIN_PART_SIZE_BYTES:
+        if multipart and batch_size < MIN_PART_SIZE_MEGABYTES:
             raise ValueError(
-                f"batch_size must be >= {MIN_PART_SIZE_BYTES} bytes (5MB). Got {batch_size}."
+                f"batch_size must be >= {MIN_PART_SIZE_MEGABYTES} MB. Got {batch_size}."
             )
 
         if multipart:
+            batch_size = batch_size * 1024 * 1024
             return self.multipart_upload.upload(
                 repo_name=repo_name,
                 branch=branch,
